@@ -4,6 +4,7 @@ import com.christos_bramis.bram_vortex_repo_analyzer.dto.AnalysisRequest;
 import com.christos_bramis.bram_vortex_repo_analyzer.dto.RepoResponse;
 import com.christos_bramis.bram_vortex_repo_analyzer.service.RepoService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -19,34 +20,37 @@ public class Repositories {
     }
 
     /**
-     * Endpoint 1: Φέρνει όλα τα Repositories του χρήστη.
-     * URL: GET /dashboard/repos
-     * Header: X-User-Id (το στέλνει το Gateway ή το Frontend)
+     * Endpoint 1: Φέρνει όλα τα Repositories.
+     * Το userId το παίρνουμε αυτόματα από το JWT (μέσω του @AuthenticationPrincipal).
      */
     @GetMapping("/repos")
     public ResponseEntity<List<RepoResponse>> getAllRepositories(
-            @RequestHeader("X-User-Id") String userId) {
+            @AuthenticationPrincipal String userId) { // <--- Η ΑΛΛΑΓΗ ΕΙΝΑΙ ΕΔΩ
 
-        // Καλεί το service, το οποίο μιλάει με Vault -> GitHub
+        // Αμυντικός έλεγχος (αν για κάποιο λόγο το filter δεν δούλεψε σωστά)
+        if (userId == null) {
+            return ResponseEntity.status(401).build();
+        }
+
+        System.out.println("Authenticated Request for User ID: " + userId);
+
         List<RepoResponse> repos = repoService.getUserRepositories(userId);
-
         return ResponseEntity.ok(repos);
     }
 
     /**
-     * Endpoint 2: Ξεκινάει την ανάλυση για το επιλεγμένο Repository.
-     * URL: POST /dashboard/analyze
-     * Body: { "repoId": 123, "repoName": "...", "repoUrl": "..." }
+     * Endpoint 2: Ξεκινάει την ανάλυση.
+     * Ομοίως, παίρνουμε το userId από το Token.
      */
     @PostMapping("/analyze")
     public ResponseEntity<String> startRepoAnalysis(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId, // <--- Η ΑΛΛΑΓΗ ΕΙΝΑΙ ΕΔΩ
             @RequestBody AnalysisRequest request) {
 
-        // Ξεκινάει το workflow
+        System.out.println("Analysis Request from User ID: " + userId);
+
         String jobId = repoService.startAnalysis(userId, request);
 
-        // Επιστρέφει 202 Accepted (σημαίνει "το έλαβα και θα το επεξεργαστώ")
         return ResponseEntity.accepted().body("Analysis started successfully. Job ID: " + jobId);
     }
 }
