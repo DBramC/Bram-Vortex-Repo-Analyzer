@@ -1,10 +1,15 @@
 package com.christos_bramis.bram_vortex_repo_analyzer.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 public class User {
 
     private Long id;              // Το ID στη δική σου βάση
+
+    @JsonProperty("login")
     private String username;      // Το όνομα χρήστη (π.χ. από GitHub)
-    private String email;         // Το email του
+
+    @JsonProperty("avatar_url")
     private String avatarUrl;     // Η εικόνα προφίλ από το GitHub
     private String role;          // Ο ρόλος του (π.χ. "USER", "ADMIN")
 
@@ -16,7 +21,6 @@ public class User {
     public User(Long id, String username, String email, String avatarUrl, String role) {
         this.id = id;
         this.username = username;
-        this.email = email;
         this.avatarUrl = avatarUrl;
         this.role = role;
     }
@@ -36,14 +40,6 @@ public class User {
 
     public void setUsername(String username) {
         this.username = username;
-    }
-
-    public String getEmail() {
-        return email;
-    }
-
-    public void setEmail(String email) {
-        this.email = email;
     }
 
     public String getAvatarUrl() {
@@ -68,7 +64,6 @@ public class User {
         return "UserDto{" +
                 "id=" + id +
                 ", username='" + username + '\'' +
-                ", email='" + email + '\'' +
                 '}';
     }
 }
