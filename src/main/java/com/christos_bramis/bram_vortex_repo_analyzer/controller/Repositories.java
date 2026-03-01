@@ -53,4 +53,15 @@ public class Repositories {
 
         return ResponseEntity.accepted().body("Analysis started successfully. Job ID: " + jobId);
     }
+
+    @GetMapping("/jobs/{jobId}")
+    public ResponseEntity<String> getAnalysisResult(@PathVariable String jobId) {
+        String result = repoService.getAnalysisResult(jobId);
+
+        if (result == null) {
+            return ResponseEntity.notFound().build(); // 404 αν δεν βρέθηκε το Job
+        }
+
+        return ResponseEntity.ok(result); // 200 OK με το JSON!
+    }
 }
