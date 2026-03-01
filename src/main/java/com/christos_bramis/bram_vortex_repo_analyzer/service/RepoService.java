@@ -161,7 +161,7 @@ public class RepoService {
             
             SCHEMA INSTRUCTIONS:
             %s
-            """, targetCloud, realManifestContent, targetCloud, formatInstructions);
+            """, targetCloud, foundPath, realManifestContent, targetCloud, formatInstructions);
 
         // 6. Δημιουργούμε το μοναδικό Job ID
         String jobId = UUID.randomUUID().toString();
