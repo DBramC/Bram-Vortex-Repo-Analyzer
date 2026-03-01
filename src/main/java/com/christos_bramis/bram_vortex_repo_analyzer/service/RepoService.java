@@ -14,6 +14,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -78,38 +79,53 @@ public class RepoService {
                 .replace("https://github.com/", "")
                 .replace(".git", ""); // Αφαιρούμε το .git αν υπάρχει
 
-        // 3. ΔΥΝΑΜΙΚΗ ΑΝΑΖΗΤΗΣΗ MANIFEST FILE ΜΕΣΩ GITHUB API
-        List<String> possibleManifests = List.of("pom.xml", "package.json", "Dockerfile", "requirements.txt");
+        // 3. ΔΥΝΑΜΙΚΗ ΚΑΙ ΑΝΑΔΡΟΜΙΚΗ ΑΝΑΖΗΤΗΣΗ MANIFEST FILE
         String realManifestContent = null;
-        String foundFileName = null;
+        String foundPath = null;
 
-        System.out.println("🔍 Searching for manifest files in: " + ownerAndRepo);
+        System.out.println("🔍 Searching recursively for manifest files in: " + ownerAndRepo);
 
-        for (String fileName : possibleManifests) {
-            try {
-                // Ζητάμε το αρχείο απευθείας σε μορφή RAW text (application/vnd.github.v3.raw)
+        try {
+            // 3α. Παίρνουμε τη λίστα όλων των αρχείων αναδρομικά (recursive=1)
+            Map<String, Object> treeResponse = restClient.get()
+                    .uri("/repos/" + ownerAndRepo + "/git/trees/main?recursive=1")
+                    .header("Authorization", "Bearer " + accessToken)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<Map<String, Object>>() {});
+
+            List<Map<String, String>> tree = (List<Map<String, String>>) treeResponse.get("tree");
+            List<String> priorityFiles = List.of("pom.xml", "package.json", "Dockerfile", "requirements.txt");
+
+            // 3β. Ψάχνουμε το path που τελειώνει σε ένα από τα priorityFiles
+            for (String target : priorityFiles) {
+                foundPath = tree.stream()
+                        .map(item -> item.get("path"))
+                        .filter(path -> path.endsWith(target))
+                        .findFirst()
+                        .orElse(null);
+                if (foundPath != null) break;
+            }
+
+            // 3γ. Αν βρήκαμε path, τραβάμε το περιεχόμενο του αρχείου
+            if (foundPath != null) {
                 realManifestContent = restClient.get()
-                        .uri("/repos/" + ownerAndRepo + "/contents/" + fileName)
+                        .uri("/repos/" + ownerAndRepo + "/contents/" + foundPath)
                         .header("Authorization", "Bearer " + accessToken)
                         .header("Accept", "application/vnd.github.v3.raw")
                         .retrieve()
                         .body(String.class);
 
-                if (realManifestContent != null && !realManifestContent.isEmpty()) {
-                    foundFileName = fileName;
-                    System.out.println("✅ Found manifest: " + foundFileName);
-                    break; // Το βρήκαμε! Σταματάμε το Loop.
-                }
-            } catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
-                // Το αρχείο δεν υπάρχει (404), συνεχίζουμε στο επόμενο (π.χ. δεν έχει pom.xml, ψάχνει package.json)
-            } catch (Exception e) {
-                System.err.println("⚠️ API Error while fetching " + fileName + ": " + e.getMessage());
+                System.out.println("✅ Found manifest at path: " + foundPath);
             }
+
+        } catch (Exception e) {
+            System.err.println("⚠️ Error during recursive search: " + e.getMessage());
+            // Fallback: Αν το branch δεν είναι 'main', μπορείς να δοκιμάσεις και το 'master' εδώ αν θες
         }
 
-        // Αν δεν βρήκαμε κανένα αναγνωρίσιμο αρχείο, ρίχνουμε Exception
+// Αν δεν βρήκαμε κανένα αναγνωρίσιμο αρχείο, ρίχνουμε Exception
         if (realManifestContent == null) {
-            throw new RuntimeException("No supported manifest file (pom.xml, package.json, Dockerfile) found at the root of the repository.");
+            throw new RuntimeException("No supported manifest file found in the repository (checked all subdirectories).");
         }
 
 
@@ -145,7 +161,7 @@ public class RepoService {
             
             SCHEMA INSTRUCTIONS:
             %s
-            """, targetCloud, foundFileName, realManifestContent, targetCloud, formatInstructions);
+            """, targetCloud, realManifestContent, targetCloud, formatInstructions);
 
         // 6. Δημιουργούμε το μοναδικό Job ID
         String jobId = UUID.randomUUID().toString();
