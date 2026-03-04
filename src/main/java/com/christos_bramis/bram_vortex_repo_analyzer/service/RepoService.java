@@ -79,11 +79,13 @@ public class RepoService {
                 .replace("https://github.com/", "")
                 .replace(".git", ""); // Αφαιρούμε το .git αν υπάρχει
 
-        // 3. ΔΥΝΑΜΙΚΗ ΚΑΙ ΑΝΑΔΡΟΜΙΚΗ ΑΝΑΖΗΤΗΣΗ MANIFEST FILE
+        // 3. ΔΥΝΑΜΙΚΗ ΚΑΙ ΑΝΑΔΡΟΜΙΚΗ ΑΝΑΖΗΤΗΣΗ MANIFEST ΚΑΙ CONFIG FILE
         String realManifestContent = null;
-        String foundPath = null;
+        String realConfigContent = null; // <-- ΝΕΟ: Αποθήκευση του config
+        String foundManifestPath = null;
+        String foundConfigPath = null;   // <-- ΝΕΟ: Path του config
 
-        System.out.println("🔍 Searching recursively for manifest files in: " + ownerAndRepo);
+        System.out.println("🔍 Searching recursively for manifest and config files in: " + ownerAndRepo);
 
         try {
             // 3α. Παίρνουμε τη λίστα όλων των αρχείων αναδρομικά (recursive=1)
@@ -94,28 +96,53 @@ public class RepoService {
                     .body(new ParameterizedTypeReference<Map<String, Object>>() {});
 
             List<Map<String, String>> tree = (List<Map<String, String>>) treeResponse.get("tree");
-            List<String> priorityFiles = List.of("pom.xml", "package.json", "Dockerfile", "requirements.txt");
 
-            // 3β. Ψάχνουμε το path που τελειώνει σε ένα από τα priorityFiles
-            for (String target : priorityFiles) {
-                foundPath = tree.stream()
+            // Ορίζουμε τι ψάχνουμε
+            List<String> priorityManifests = List.of("pom.xml", "package.json", "Dockerfile", "requirements.txt");
+            List<String> priorityConfigs = List.of("application.properties", "application.yml", "application.yaml", ".env");
+
+            // 3β. Ψάχνουμε το path για το Manifest
+            for (String target : priorityManifests) {
+                foundManifestPath = tree.stream()
                         .map(item -> item.get("path"))
                         .filter(path -> path.endsWith(target))
                         .findFirst()
                         .orElse(null);
-                if (foundPath != null) break;
+                if (foundManifestPath != null) break;
             }
 
-            // 3γ. Αν βρήκαμε path, τραβάμε το περιεχόμενο του αρχείου
-            if (foundPath != null) {
+            // 3γ. Ψάχνουμε το path για το Config
+            for (String target : priorityConfigs) {
+                foundConfigPath = tree.stream()
+                        .map(item -> item.get("path"))
+                        .filter(path -> path.endsWith(target))
+                        .findFirst()
+                        .orElse(null);
+                if (foundConfigPath != null) break;
+            }
+
+            // 3δ. Τραβάμε το περιεχόμενο του Manifest (Αν βρέθηκε)
+            if (foundManifestPath != null) {
                 realManifestContent = restClient.get()
-                        .uri("/repos/" + ownerAndRepo + "/contents/" + foundPath)
+                        .uri("/repos/" + ownerAndRepo + "/contents/" + foundManifestPath)
                         .header("Authorization", "Bearer " + accessToken)
                         .header("Accept", "application/vnd.github.v3.raw")
                         .retrieve()
                         .body(String.class);
 
-                System.out.println("✅ Found manifest at path: " + foundPath);
+                System.out.println("✅ Found manifest at path: " + foundManifestPath);
+            }
+
+            // 3ε. Τραβάμε το περιεχόμενο του Config (Αν βρέθηκε)
+            if (foundConfigPath != null) {
+                realConfigContent = restClient.get()
+                        .uri("/repos/" + ownerAndRepo + "/contents/" + foundConfigPath)
+                        .header("Authorization", "Bearer " + accessToken)
+                        .header("Accept", "application/vnd.github.v3.raw")
+                        .retrieve()
+                        .body(String.class);
+
+                System.out.println("✅ Found config at path: " + foundConfigPath);
             }
 
         } catch (Exception e) {
@@ -123,45 +150,59 @@ public class RepoService {
             // Fallback: Αν το branch δεν είναι 'main', μπορείς να δοκιμάσεις και το 'master' εδώ αν θες
         }
 
-// Αν δεν βρήκαμε κανένα αναγνωρίσιμο αρχείο, ρίχνουμε Exception
+        // Αν δεν βρήκαμε κανένα αναγνωρίσιμο αρχείο MANIFEST, ρίχνουμε Exception (το config είναι προαιρετικό)
         if (realManifestContent == null) {
             throw new RuntimeException("No supported manifest file found in the repository (checked all subdirectories).");
         }
-
 
         // 4. Ετοιμάζουμε τον Converter του Spring AI
         var outputConverter = new BeanOutputConverter<>(InfrastructureAnalysis.class);
         String formatInstructions = outputConverter.getFormat();
 
         // 5. Φτιάχνουμε το Δυναμικό System Prompt χρησιμοποιώντας το ΠΡΑΓΜΑΤΙΚΟ ΠΕΡΙΕΧΟΜΕΝΟ
+        String configSection = (realConfigContent != null && !realConfigContent.isEmpty())
+                ? realConfigContent
+                : "No explicit configuration file found. Assume framework defaults.";
+
         String promptMessage = String.format("""
-            You are an expert Cloud Software Architect and AI Agent representing the 'Bram Vortex' platform.
-            Your task is to analyze the following repository manifest file and generate an "Architectural Blueprint" (Single Source of Truth).
-            
-            This blueprint will be routed to specialized microservices (Terraform, Ansible, CI/CD, Monitoring) to automatically provision the infrastructure. 
-            DO NOT GENERATE CODE (no Terraform code, no Dockerfiles). Generate only the specifications.
-            
-            TARGET CLOUD PROVIDER: %s
-            MANIFEST FILE NAME: %s
-            
-            Manifest File Content:
-            %s
-            
-            TASKS:
-            1. Analyze the tech stack to identify the primary language, framework, and application type.
-            2. Scan dependencies to detect required external infrastructure (e.g., if you see 'spring-boot-starter-data-jpa' and 'postgresql', list PostgreSQL as a required database).
-            3. Recommend the optimal compute infrastructure for the TARGET CLOUD PROVIDER (%s) (e.g., EKS, GKE, AKS, or serverless containers).
-            4. Identify the expected default exposed port for this framework (e.g., 8080 for Spring, 3000 for React).
-            5. Outline the required CI/CD build steps and necessary monitoring metrics for this specific tech stack.
-            
-            CRITICAL INSTRUCTIONS FOR JSON OUTPUT:
-            - You must respond EXCLUSIVELY with a valid, raw JSON object representing the blueprint.
-            - DO NOT include ANY markdown formatting around the JSON object.
-            - Provide ONLY raw JSON that strictly matches the schema provided below.
-            
-            SCHEMA INSTRUCTIONS:
-            %s
-            """, targetCloud, foundPath, realManifestContent, targetCloud, formatInstructions);
+        You are an expert Cloud Software Architect and AI Agent representing the 'Bram Vortex' platform.
+        Your task is to analyze the following repository files and generate an "Architectural Blueprint" (Single Source of Truth).
+        
+        This blueprint will be routed to specialized microservices to automatically provision the infrastructure. 
+        DO NOT GENERATE CODE. Generate only the specifications.
+        
+        TARGET CLOUD PROVIDER: %s
+        MANIFEST FILE PATH: %s
+        CONFIG FILE PATH: %s
+        
+        --- MANIFEST FILE CONTENT ---
+        %s
+        
+        --- CONFIGURATION FILE CONTENT ---
+        %s
+        
+        TASKS:
+        1. Analyze the tech stack to identify the primary language, framework, and application type.
+        2. Scan dependencies to detect required external infrastructure (e.g., PostgreSQL, Redis).
+        3. Recommend the optimal compute infrastructure for %s (e.g., EKS, GKE, serverless containers).
+        4. Identify the expected exposed port. CRITICAL: Check the CONFIGURATION FILE CONTENT above for custom ports (e.g., server.port=9090). If none is specified, output the framework's default port (e.g., 8080 for Spring).
+        5. Outline the required CI/CD build steps and necessary monitoring metrics.
+        
+        CRITICAL INSTRUCTIONS FOR JSON OUTPUT:
+        - You must respond EXCLUSIVELY with a valid, raw JSON object representing the blueprint.
+        - DO NOT include ANY markdown formatting around the JSON object.
+        - Provide ONLY raw JSON that strictly matches the schema provided below.
+        
+        SCHEMA INSTRUCTIONS:
+        %s
+        """,
+                targetCloud,
+                foundManifestPath,
+                (foundConfigPath != null ? foundConfigPath : "None"),
+                realManifestContent,
+                configSection,
+                targetCloud,
+                formatInstructions);
 
         // 6. Δημιουργούμε το μοναδικό Job ID
         String jobId = UUID.randomUUID().toString();
@@ -178,6 +219,10 @@ public class RepoService {
 
         job.setTargetCloud(targetCloud);
         job.setStatus("ANALYZING");
+
+        // ΝΕΟ: Αποθήκευση του Prompt στη βάση (Βεβαιώσου ότι η AnalysisJob έχει το πεδίο promptMessage)
+        job.setPromptMessage(promptMessage);
+
         jobRepository.save(job);
 
         // 8. Κάνουμε την κλήση στον Gemini Agent

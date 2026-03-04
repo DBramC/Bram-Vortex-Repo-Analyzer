@@ -33,6 +33,9 @@ public class AnalysisJob {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    @Column(columnDefinition = "TEXT")
+    private String promptMessage;
+
     // --- Constructors ---
     public AnalysisJob() {}
 
@@ -64,5 +67,13 @@ public class AnalysisJob {
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
+    }
+
+    public String getPromptMessage() {
+        return promptMessage;
+    }
+
+    public void setPromptMessage(String promptMessage) {
+        this.promptMessage = promptMessage;
     }
 }
