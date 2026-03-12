@@ -244,9 +244,8 @@ public class RepoService {
             job.setStatus("COMPLETED");
             jobRepository.save(job);
 
-            System.out.println("💾 Blueprint successfully saved in PostgreSQL! Job ID: " + jobId);
+            System.out.println("💾 Blueprint successfully saved in PostgresSQL! Job ID: " + jobId);
 
-            // Μελλοντικά εδώ θα μπει το RabbitTemplate/KafkaTemplate.send("blueprints", jobId, analysisResult);
 
         } catch (Exception e) {
             System.err.println("❌ Error during AI Analysis: " + e.getMessage());
@@ -258,7 +257,6 @@ public class RepoService {
         // 10. Επιστρέφουμε το Job ID στο Frontend
         return jobId;
     }
-
     /**
      * Επιστρέφει το Blueprint (JSON String) από τη βάση δεδομένων με βάση το Job ID.
      */
