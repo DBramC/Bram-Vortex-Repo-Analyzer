@@ -52,7 +52,7 @@ public class Repositories {
 
         String jobId = repoService.startAnalysis(userId, request);
 
-        return ResponseEntity.accepted().body("Analysis started successfully. Job ID: " + jobId);
+        return ResponseEntity.ok(jobId);
     }
 
     @GetMapping("/jobs/{jobId}")
