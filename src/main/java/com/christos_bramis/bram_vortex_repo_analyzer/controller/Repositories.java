@@ -2,6 +2,7 @@ package com.christos_bramis.bram_vortex_repo_analyzer.controller;
 
 import com.christos_bramis.bram_vortex_repo_analyzer.dto.AnalysisRequest;
 import com.christos_bramis.bram_vortex_repo_analyzer.dto.RepoResponse;
+import com.christos_bramis.bram_vortex_repo_analyzer.entity.AnalysisJob;
 import com.christos_bramis.bram_vortex_repo_analyzer.service.RepoService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -55,13 +56,17 @@ public class Repositories {
     }
 
     @GetMapping("/jobs/{jobId}")
-    public ResponseEntity<String> getAnalysisResult(@PathVariable String jobId) {
-        String result = repoService.getAnalysisResult(jobId);
+    public ResponseEntity<AnalysisJob> getAnalysisJob(@PathVariable String jobId) {
 
-        if (result == null) {
+        // Καλούμε τη νέα μέθοδο του Service που φέρνει ΟΛΟ το Job
+        AnalysisJob job = repoService.getAnalysisJob(jobId);
+
+        if (job == null) {
             return ResponseEntity.notFound().build(); // 404 αν δεν βρέθηκε το Job
         }
 
-        return ResponseEntity.ok(result); // 200 OK με το JSON!
+        // Το Spring Boot (Jackson) θα μετατρέψει αυτόματα το αντικείμενο job
+        // σε ένα ωραιότατο JSON με τα πεδία: status, promptMessage, blueprintJson κλπ.
+        return ResponseEntity.ok(job);
     }
 }

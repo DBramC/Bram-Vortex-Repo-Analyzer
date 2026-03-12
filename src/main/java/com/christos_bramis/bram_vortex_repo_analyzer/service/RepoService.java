@@ -225,44 +225,39 @@ public class RepoService {
 
         jobRepository.save(job);
 
-        // 8. Κάνουμε την κλήση στον Gemini Agent
-        try {
-            System.out.println("🤖 Asking Gemini to analyze and generate Blueprint for cloud: " + targetCloud + "...");
-            String aiResponse = chatModel.call(promptMessage);
+        // 8. Κάνουμε την κλήση στον Gemini Agent ΑΣΥΓΧΡΟΝΑ (Στο παρασκήνιο)
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
+            try {
+                System.out.println("🤖 Asking Gemini to analyze and generate Blueprint for cloud: " + targetCloud + "...");
+                String aiResponse = chatModel.call(promptMessage);
 
-            // Μετατροπή της απάντησης σε Java Object (DTO)
-            InfrastructureAnalysis analysisResult = outputConverter.convert(aiResponse);
+                // Μετατροπή της απάντησης σε Java Object (DTO)
+                InfrastructureAnalysis analysisResult = outputConverter.convert(aiResponse);
 
-            System.out.println("✅ Gemini Analysis Complete!");
-            System.out.println("Primary Language: " + analysisResult.getPrimaryLanguage());
-            System.out.println("Recommended Infra: " + analysisResult.getRecommendedCompute());
+                System.out.println("✅ Gemini Analysis Complete!");
 
-            // 9. ΤΕΛΙΚΗ ΑΠΟΘΗΚΕΥΣΗ (COMPLETED): Μετατρέπουμε το DTO σε JSON String και κάνουμε Update
-            String jsonBlueprint = objectMapper.writeValueAsString(analysisResult);
+                // 9. ΤΕΛΙΚΗ ΑΠΟΘΗΚΕΥΣΗ (COMPLETED)
+                String jsonBlueprint = objectMapper.writeValueAsString(analysisResult);
+                job.setBlueprintJson(jsonBlueprint);
+                job.setStatus("COMPLETED");
+                jobRepository.save(job);
 
-            job.setBlueprintJson(jsonBlueprint);
-            job.setStatus("COMPLETED");
-            jobRepository.save(job);
+                System.out.println("💾 Blueprint successfully saved! Job ID: " + jobId);
 
-            System.out.println("💾 Blueprint successfully saved in PostgresSQL! Job ID: " + jobId);
+            } catch (Exception e) {
+                System.err.println("❌ Error during AI Analysis: " + e.getMessage());
+                job.setStatus("FAILED");
+                jobRepository.save(job);
+            }
+        });
 
-
-        } catch (Exception e) {
-            System.err.println("❌ Error during AI Analysis: " + e.getMessage());
-            // Ενημερώνουμε τη βάση ότι η ανάλυση απέτυχε
-            job.setStatus("FAILED");
-            jobRepository.save(job);
-        }
-
-        // 10. Επιστρέφουμε το Job ID στο Frontend
+        // 10. Επιστρέφουμε το Job ID στο Frontend ΑΜΕΣΩΣ (πριν τελειώσει το AI)
         return jobId;
     }
     /**
      * Επιστρέφει το Blueprint (JSON String) από τη βάση δεδομένων με βάση το Job ID.
      */
-    public String getAnalysisResult(String jobId) {
-        return jobRepository.findById(jobId)
-                .map(AnalysisJob::getBlueprintJson)
-                .orElse(null); // Αν δε βρεθεί, επιστρέφει null
+    public AnalysisJob getAnalysisJob(String jobId) {
+        return jobRepository.findById(jobId).orElse(null);
     }
 }
