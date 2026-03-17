@@ -8,12 +8,11 @@ public class InfrastructureAnalysis {
     private String primaryLanguage;
     private String framework;
     private List<String> requiredDatabasesAndCaches;
-    private Map<String, String> computeSpecs;
+    private Map<String, String> computeSpecs; // <-- Τεχνικές προδιαγραφές (CPU, RAM, κλπ)
     private String targetCloud;
     private String targetCompute;
     private int targetContainerPort;
     private Map<String, String> configurationSettings;
-
     private List<String> buildSteps;
     private List<String> monitoringMetrics;
 
@@ -29,6 +28,9 @@ public class InfrastructureAnalysis {
 
     public List<String> getRequiredDatabasesAndCaches() { return requiredDatabasesAndCaches; }
     public void setRequiredDatabasesAndCaches(List<String> requiredDatabasesAndCaches) { this.requiredDatabasesAndCaches = requiredDatabasesAndCaches; }
+
+    public Map<String, String> getComputeSpecs() { return computeSpecs; }
+    public void setComputeSpecs(Map<String, String> computeSpecs) { this.computeSpecs = computeSpecs; }
 
     public String getTargetCloud() { return targetCloud; }
     public void setTargetCloud(String targetCloud) { this.targetCloud = targetCloud; }

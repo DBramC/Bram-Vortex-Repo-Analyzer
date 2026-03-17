@@ -49,21 +49,19 @@ public class RepoService {
     public String startAnalysis(String userId, AnalysisRequest request) {
         String accessToken = vaultService.getGithubToken(userId);
 
-        // 1. Παράμετροι από Request
+        // 1. Παράμετροι από Request με Default τιμές
         String targetCloud = (request.getTargetCloud() != null && !request.getTargetCloud().isEmpty()) ? request.getTargetCloud() : "AWS";
-        String computeType = (request.getComputeType() != null && !request.getComputeType().isEmpty()) ? request.getComputeType() : "managed container";
+        String computeType = (request.getComputeType() != null && !request.getComputeType().isEmpty()) ? request.getComputeType() : "Container";
         String targetRegion = (request.getTargetRegion() != null && !request.getTargetRegion().isEmpty()) ? request.getTargetRegion() : "eu-central-1";
 
-        // 2. Ασφαλής επεξεργασία URL
+        // 2. Ασφαλής επεξεργασία URL (Fix NullPointerException)
         String safeRepoUrl = request.getRepoUrl() != null ? request.getRepoUrl() : "";
         String ownerAndRepo = safeRepoUrl.replace("https://github.com/", "").replace(".git", "");
         if (ownerAndRepo.isEmpty() && request.getRepoName() != null) ownerAndRepo = request.getRepoName();
 
-        // 3. Συλλογή αρχείων
+        // 3. Συλλογή αρχείων (Recursive)
         String realManifestContent = null;
         String foundManifestPath = null;
-
-        // Χρησιμοποιούμε Map για να αποθηκεύσουμε πολλά configs: Path -> Content
         Map<String, String> allConfigsFound = new HashMap<>();
 
         try {
@@ -75,100 +73,80 @@ public class RepoService {
 
             List<Map<String, String>> tree = (List<Map<String, String>>) treeResponse.get("tree");
 
-            // Λίστες αναζήτησης
             List<String> manifestPatterns = List.of("pom.xml", "package.json", "Dockerfile", "requirements.txt");
             List<String> configPatterns = List.of("application.properties", "application.yml", "application.yaml", ".env");
 
-            // 3α. Εύρεση Manifest (παίρνουμε το πρώτο που ταιριάζει βάσει προτεραιότητας)
+            // Εύρεση Πρωτεύοντος Manifest
             for (String pattern : manifestPatterns) {
                 foundManifestPath = tree.stream().map(i -> i.get("path")).filter(p -> p.endsWith(pattern)).findFirst().orElse(null);
                 if (foundManifestPath != null) break;
             }
+            if (foundManifestPath != null) realManifestContent = fetchFileContent(ownerAndRepo, foundManifestPath, accessToken);
 
-            if (foundManifestPath != null) {
-                realManifestContent = fetchFileContent(ownerAndRepo, foundManifestPath, accessToken);
-            }
-
-            // 3β. Εύρεση ΠΟΛΛΑΠΛΩΝ Configs (δεν κάνουμε break, τα παίρνουμε όλα)
+            // Εύρεση και συλλογή ΟΛΩΝ των Configs
             for (String pattern : configPatterns) {
-                List<String> matches = tree.stream()
-                        .map(i -> i.get("path"))
-                        .filter(p -> p.endsWith(pattern))
-                        .collect(Collectors.toList());
-
+                List<String> matches = tree.stream().map(i -> i.get("path")).filter(p -> p.endsWith(pattern)).collect(Collectors.toList());
                 for (String path : matches) {
                     String content = fetchFileContent(ownerAndRepo, path, accessToken);
                     if (content != null) allConfigsFound.put(path, content);
                 }
             }
-
         } catch (Exception e) {
             System.err.println("⚠️ Search Error: " + e.getMessage());
         }
 
         if (realManifestContent == null) throw new RuntimeException("No manifest file found.");
 
-        // 4. Προετοιμασία Prompt
+        // 4. Προετοιμασία AI Prompt
         var outputConverter = new BeanOutputConverter<>(InfrastructureAnalysis.class);
-
-        // Δημιουργούμε ένα ενιαίο String με όλα τα configs και headers για το AI
         StringBuilder configsBuilder = new StringBuilder();
         if (allConfigsFound.isEmpty()) {
             configsBuilder.append("No explicit configuration files found. Assume framework defaults.");
         } else {
-            allConfigsFound.forEach((path, content) -> {
-                configsBuilder.append(String.format("\n--- CONFIG FILE: %s ---\n%s\n", path, content));
-            });
+            allConfigsFound.forEach((path, content) -> configsBuilder.append(String.format("\n--- FILE: %s ---\n%s\n", path, content)));
         }
 
         String promptMessage = String.format("""
-        You are an expert Cloud Software Architect representing 'Bram Vortex'.
-        Analyze the repository files and generate a detailed "Architectural Blueprint".
+        You are an expert Cloud Architect for the 'Bram Vortex' platform.
+        Generate a detailed "Architectural Blueprint" JSON for the following repository.
         
-        DO NOT GENERATE CODE. Generate only the specifications.
+        DO NOT GENERATE CODE. Generate only infrastructure specifications.
         
-        TARGET CLOUD PROVIDER: %1$s
-        TARGET COMPUTE TYPE: %2$s
-        TARGET REGION: %3$s
-        MANIFEST FILE PATH: %4$s
+        CONTEXT:
+        - Target Cloud: %1$s
+        - Requested Compute Type: %2$s
+        - Target Region: %3$s
+        - Manifest: %4$s
         
-        --- PRIMARY MANIFEST CONTENT ---
+        --- MANIFEST CONTENT ---
         %5$s
         
         --- ALL DETECTED CONFIGURATIONS ---
         %6$s
         
-        TASKS:
-        1. Identify application type, primary language, and framework.
-        2. Detect infrastructure dependencies (Databases, Caches, MQ).
-        3. The user requested '%2$s' in '%3$s'.
-            - Define 'targetCompute' (e.g., 'AWS ECS Fargate' or 'AWS EC2').
-            - In 'computeSpecs', provide EXACT technical details:
-                * For Containers: Define 'cpu_units' (e.g., 256, 512, 1024), 'memory_mb' (e.g., 512, 2048) and 'min_max_replicas'.
-                * For VMs: Define 'instance_family' (e.g., 't3.micro', 't3.medium') based on framework requirements.
-                * For Kubernetes: Define 'node_type' and 'autoscaling_range'."
-        4. CRITICAL: Extract ALL configuration keys and values from ALL provided files in the "ALL DETECTED CONFIGURATIONS" section. 
-           - Map them into the 'configurationSettings' field.
-           - If a key exists in both a .properties and a .env file, prioritize the .env value.
-        5. Identify the container port ('targetContainerPort'). Look into configs for 'server.port' or similar.
-        6. Define build steps and monitoring metrics.
+        REQUIRED TASKS:
+        1. Identify tech stack (Language, Framework, App Type).
+        2. Define 'targetCompute' based on '%2$s' (e.g., 'AWS ECS Fargate', 'Azure AKS').
+        3. CRITICAL: Fill 'computeSpecs' with technical hardware requirements based on the tech stack:
+           - For Containers: include 'cpu_units', 'memory_mb', 'min_max_replicas'.
+           - For Kubernetes: include 'node_type' (instance size), 'autoscaling_range', 'min_nodes'.
+           - For VMs: include 'instance_family' (e.g., 't3.micro').
+        4. Extract ALL keys/values from the CONFIGURATIONS section into 'configurationSettings'. 
+           - If a key exists in both a .properties/.yml and a .env, prioritize the .env value.
+        5. Detect 'targetContainerPort' (e.g., 8080, 3000). Check configs for 'server.port' or 'PORT'.
+        6. Define necessary build steps and monitoring metrics.
         
-        OUTPUT RULES:
-        - Respond EXCLUSIVELY with raw JSON. No markdown.
+        RULES:
+        - Respond ONLY with raw JSON. No markdown backticks.
         - 'targetCloud' must be exactly "%1$s".
         
-        SCHEMA INSTRUCTIONS:
+        SCHEMA:
         %7$s
         """,
-                targetCloud,                    //%1$s
-                computeType,                    //%2$s
-                targetRegion,
-                foundManifestPath,
-                realManifestContent,
-                configsBuilder,
-                outputConverter.getFormat());
+                targetCloud, computeType, targetRegion, foundManifestPath,
+                realManifestContent, configsBuilder.toString(), outputConverter.getFormat());
 
-        // 5. Job Creation & Async Execution
+        // 5. Job Creation & Execution
         String jobId = UUID.randomUUID().toString();
         AnalysisJob job = new AnalysisJob();
         job.setJobId(jobId);
@@ -190,6 +168,7 @@ public class RepoService {
                 job.setStatus("COMPLETED");
                 jobRepository.save(job);
             } catch (Exception e) {
+                System.err.println("❌ AI Error: " + e.getMessage());
                 job.setStatus("FAILED");
                 jobRepository.save(job);
             }
