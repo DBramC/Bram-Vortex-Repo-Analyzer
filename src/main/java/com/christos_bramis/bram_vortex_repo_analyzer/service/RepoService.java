@@ -23,8 +23,6 @@ public class RepoService {
     private final ChatModel chatModel;
     private final AnalysisJobRepository jobRepository;
     private final ObjectMapper objectMapper;
-
-    // Προσθήκη RestClient για τα εσωτερικά Webhooks
     private final RestClient internalClient = RestClient.create();
 
     public RepoService(RestClient.Builder builder, VaultService vaultService, ChatModel chatModel,
@@ -53,16 +51,27 @@ public class RepoService {
         System.out.println("\n🚀 [VORTEX-ANALYZER] --- STARTING NEW ANALYSIS ---");
         System.out.println("👤 User ID: " + userId);
 
+        // 1. Vault Token Retrieval
+        System.out.println("🔑 [STAGE 1] Accessing Vault for GitHub Token...");
         String accessToken = vaultService.getGithubToken(userId);
+        System.out.println("✅ Token retrieved successfully.");
 
+        // 2. Parameters
         String targetCloud = (request.getTargetCloud() != null && !request.getTargetCloud().isEmpty()) ? request.getTargetCloud() : "AWS";
         String computeType = (request.getComputeType() != null && !request.getComputeType().isEmpty()) ? request.getComputeType() : "Container";
         String targetRegion = (request.getTargetRegion() != null && !request.getTargetRegion().isEmpty()) ? request.getTargetRegion() : "eu-central-1";
 
+        System.out.println("📋 [STAGE 2] Setting Infrastructure Parameters:");
+        System.out.println("   -> Cloud: " + targetCloud + " | Compute: " + computeType + " | Region: " + targetRegion);
+
+        // 3. Repo URL Sanitization
         String safeRepoUrl = request.getRepoUrl() != null ? request.getRepoUrl() : "";
         String ownerAndRepo = safeRepoUrl.replace("https://github.com/", "").replace(".git", "");
         if (ownerAndRepo.isEmpty() && request.getRepoName() != null) ownerAndRepo = request.getRepoName();
+        System.out.println("📦 [STAGE 3] Target Repository: " + ownerAndRepo);
 
+        // 4. GitHub Tree Fetching
+        System.out.println("🔍 [STAGE 4] Fetching GitHub Repository Tree (Recursive)...");
         String realManifestContent = null;
         String foundManifestPath = null;
         Map<String, String> allConfigsFound = new HashMap<>();
@@ -75,31 +84,43 @@ public class RepoService {
                     .body(new ParameterizedTypeReference<Map<String, Object>>() {});
 
             List<Map<String, String>> tree = (List<Map<String, String>>) treeResponse.get("tree");
+            System.out.println("📂 Total files scanned in tree: " + (tree != null ? tree.size() : 0));
+
             List<String> manifestPatterns = List.of("pom.xml", "package.json", "Dockerfile", "requirements.txt");
             List<String> configPatterns = List.of("application.properties", "application.yml", "application.yaml", ".env");
 
             for (String pattern : manifestPatterns) {
                 foundManifestPath = tree.stream().map(i -> i.get("path")).filter(p -> p.endsWith(pattern)).findFirst().orElse(null);
-                if (foundManifestPath != null) break;
+                if (foundManifestPath != null) {
+                    System.out.println("📄 Found primary manifest: " + foundManifestPath);
+                    break;
+                }
             }
 
             if (foundManifestPath != null) {
                 realManifestContent = fetchFileContent(ownerAndRepo, foundManifestPath, accessToken);
+                System.out.println("✅ Manifest content fetched.");
             }
 
+            System.out.println("⚙️ Searching for configuration files...");
             for (String pattern : configPatterns) {
                 List<String> matches = tree.stream().map(i -> i.get("path")).filter(p -> p.endsWith(pattern)).collect(Collectors.toList());
                 for (String path : matches) {
                     String content = fetchFileContent(ownerAndRepo, path, accessToken);
-                    if (content != null) allConfigsFound.put(path, content);
+                    if (content != null) {
+                        allConfigsFound.put(path, content);
+                        System.out.println("   [+] Config collected: " + path);
+                    }
                 }
             }
         } catch (Exception e) {
-            System.err.println("⚠️ GitHub Search Failure: " + e.getMessage());
+            System.err.println("⚠️ [STAGE 4 ERROR] GitHub Search Failure: " + e.getMessage());
         }
 
         if (realManifestContent == null) throw new RuntimeException("No manifest file found.");
 
+        // 5. AI Prompt Preparation
+        System.out.println("🧠 [STAGE 5] Formatting AI Prompt & Output Schema...");
         var outputConverter = new BeanOutputConverter<>(InfrastructureAnalysis.class);
         StringBuilder configsBuilder = new StringBuilder();
         if (allConfigsFound.isEmpty()) {
@@ -108,7 +129,7 @@ public class RepoService {
             allConfigsFound.forEach((path, content) -> configsBuilder.append(String.format("\n--- FILE: %s ---\n%s\n", path, content)));
         }
 
-        // --- ΠΑΡΑΜΕΝΕΙ ΩΣ ΕΧΕΙ ΤΟ PROMPT ---
+        // --- PROMPT (UNTOUCHED) ---
         String promptMessage = String.format("""
     You are an expert Cloud Architect for the 'Bram Vortex' platform.
     Generate a detailed "Architectural Blueprint" JSON for the following repository.
@@ -149,7 +170,9 @@ public class RepoService {
                 targetCloud, computeType, targetRegion, foundManifestPath,
                 realManifestContent, configsBuilder.toString(), outputConverter.getFormat());
 
+        // 6. Database Job Creation
         String jobId = UUID.randomUUID().toString();
+        System.out.println("💾 [STAGE 6] Saving Analysis Job to Database. Job ID: " + jobId);
         AnalysisJob job = new AnalysisJob();
         job.setJobId(jobId);
         job.setUserId(userId);
@@ -162,56 +185,58 @@ public class RepoService {
         job.setPromptMessage(promptMessage);
         jobRepository.save(job);
 
+        // 7. Async AI Execution
+        System.out.println("🤖 [STAGE 7] Dispatching request to Gemini AI (Asynchronous)...");
         java.util.concurrent.CompletableFuture.runAsync(() -> {
             try {
+                System.out.println("📡 [ASYNC] AI call started for Job ID: " + jobId);
                 String aiResponse = chatModel.call(promptMessage);
+                System.out.println("📥 [ASYNC] AI Response received. Converting to Blueprint...");
+
                 InfrastructureAnalysis result = outputConverter.convert(aiResponse);
                 job.setBlueprintJson(objectMapper.writeValueAsString(result));
                 job.setStatus("COMPLETED");
                 jobRepository.save(job);
-                System.out.println("🏁 [FINISH] Job " + jobId + " completed successfully!");
+                System.out.println("🏁 [FINISH] Job " + jobId + " completed successfully! Blueprint is ready.");
 
-                // --- TRIGGER DOWNSTREAM SERVICES ---
+                // Triggering downstream
                 triggerDownstreamServices(jobId, userId);
 
             } catch (Exception e) {
-                System.err.println("❌ Processing failed for Job " + jobId + ": " + e.getMessage());
+                System.err.println("❌ [ASYNC ERROR] Processing failed for Job " + jobId + ": " + e.getMessage());
                 job.setStatus("FAILED");
                 jobRepository.save(job);
             }
         });
 
+        System.out.println("📡 [RETURN] Job created. Returning Job ID: " + jobId + "\n");
         return jobId;
     }
 
-    /**
-     * Webhook Trigger: Ενημερώνει τα υπόλοιπα microservices ότι η ανάλυση τελείωσε.
-     */
     private void triggerDownstreamServices(String jobId, String userId) {
         System.out.println("📢 [WEBHOOK] Triggering downstream generators for Job: " + jobId);
 
-        // 1. Terraform Generator Trigger
+        // 1. Terraform
         try {
             String terraformUrl = "http://terraform-generator-svc:80/terraform/generate/" + jobId + "?userId=" + userId;
             internalClient.post().uri(terraformUrl).retrieve().toBodilessEntity();
-            System.out.println("✅ Terraform Generator triggered.");
+            System.out.println("✅ Terraform Generator triggered via Webhook.");
         } catch (Exception e) {
-            System.err.println("⚠️ Terraform Trigger Failed: " + e.getMessage());
+            System.err.println("⚠️ [WEBHOOK ERROR] Terraform Trigger Failed: " + e.getMessage());
         }
 
-        /* // 2. Ansible Generator Trigger (Future)
+        /* // 2. Ansible (Future)
         try {
             String ansibleUrl = "http://ansible-generator-svc:80/ansible/generate/" + jobId + "?userId=" + userId;
-            // internalClient.post().uri(ansibleUrl).retrieve().toBodilessEntity();
-        } catch (Exception e) { System.err.println("Ansible Trigger Failed"); }
+            System.out.println("✅ Ansible Generator triggered.");
+        } catch (Exception e) { System.err.println("⚠️ Ansible Trigger Failed"); }
         */
 
-        /*
-        // 3. CI/CD Pipeline Generator Trigger (Future)
+        /* // 3. Pipelines (Future)
         try {
             String pipelineUrl = "http://pipeline-generator-svc:80/pipeline/generate/" + jobId + "?userId=" + userId;
-            // internalClient.post().uri(pipelineUrl).retrieve().toBodilessEntity();
-        } catch (Exception e) { System.err.println("Pipeline Trigger Failed"); }
+            System.out.println("✅ Pipeline Generator triggered.");
+        } catch (Exception e) { System.err.println("⚠️ Pipeline Trigger Failed"); }
         */
     }
 
