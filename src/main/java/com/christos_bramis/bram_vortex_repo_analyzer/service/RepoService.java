@@ -45,25 +45,38 @@ public class RepoService {
                 .retrieve()
                 .body(new ParameterizedTypeReference<List<RepoResponse>>() {});
     }
-
     public String startAnalysis(String userId, AnalysisRequest request) {
-        String accessToken = vaultService.getGithubToken(userId);
+        System.out.println("\n🚀 [VORTEX-ANALYZER] --- STARTING NEW ANALYSIS ---");
+        System.out.println("👤 User ID: " + userId);
 
-        // 1. Παράμετροι από Request με Default τιμές
+        // 1. Ανάκτηση Token από το Vault
+        System.out.println("🔑 [STAGE 1] Accessing Vault for GitHub Token...");
+        String accessToken = vaultService.getGithubToken(userId);
+        System.out.println("✅ Token retrieved successfully.");
+
+        // 2. Παράμετροι από Request με Default τιμές
         String targetCloud = (request.getTargetCloud() != null && !request.getTargetCloud().isEmpty()) ? request.getTargetCloud() : "AWS";
         String computeType = (request.getComputeType() != null && !request.getComputeType().isEmpty()) ? request.getComputeType() : "Container";
         String targetRegion = (request.getTargetRegion() != null && !request.getTargetRegion().isEmpty()) ? request.getTargetRegion() : "eu-central-1";
 
-        // 2. Ασφαλής επεξεργασία URL (Fix NullPointerException)
+        System.out.println("📋 [STAGE 2] Setting Infrastructure Parameters:");
+        System.out.println("   -> Cloud: " + targetCloud);
+        System.out.println("   -> Compute: " + computeType);
+        System.out.println("   -> Region: " + targetRegion);
+
+        // 3. Ασφαλής επεξεργασία URL
         String safeRepoUrl = request.getRepoUrl() != null ? request.getRepoUrl() : "";
         String ownerAndRepo = safeRepoUrl.replace("https://github.com/", "").replace(".git", "");
         if (ownerAndRepo.isEmpty() && request.getRepoName() != null) ownerAndRepo = request.getRepoName();
 
-        // 3. Συλλογή αρχείων (Recursive)
+        System.out.println("📦 [STAGE 3] Target Repository: " + ownerAndRepo);
+
+        // 4. Συλλογή αρχείων (Recursive) από GitHub
         String realManifestContent = null;
         String foundManifestPath = null;
         Map<String, String> allConfigsFound = new HashMap<>();
 
+        System.out.println("🔍 [STAGE 4] Fetching GitHub Repository Tree (Recursive)...");
         try {
             Map<String, Object> treeResponse = restClient.get()
                     .uri("/repos/" + ownerAndRepo + "/git/trees/main?recursive=1")
@@ -72,6 +85,7 @@ public class RepoService {
                     .body(new ParameterizedTypeReference<Map<String, Object>>() {});
 
             List<Map<String, String>> tree = (List<Map<String, String>>) treeResponse.get("tree");
+            System.out.println("📂 Total files scanned in tree: " + (tree != null ? tree.size() : 0));
 
             List<String> manifestPatterns = List.of("pom.xml", "package.json", "Dockerfile", "requirements.txt");
             List<String> configPatterns = List.of("application.properties", "application.yml", "application.yaml", ".env");
@@ -79,25 +93,40 @@ public class RepoService {
             // Εύρεση Πρωτεύοντος Manifest
             for (String pattern : manifestPatterns) {
                 foundManifestPath = tree.stream().map(i -> i.get("path")).filter(p -> p.endsWith(pattern)).findFirst().orElse(null);
-                if (foundManifestPath != null) break;
+                if (foundManifestPath != null) {
+                    System.out.println("📄 Found primary manifest: " + foundManifestPath);
+                    break;
+                }
             }
-            if (foundManifestPath != null) realManifestContent = fetchFileContent(ownerAndRepo, foundManifestPath, accessToken);
+
+            if (foundManifestPath != null) {
+                realManifestContent = fetchFileContent(ownerAndRepo, foundManifestPath, accessToken);
+                System.out.println("✅ Manifest content fetched successfully.");
+            }
 
             // Εύρεση και συλλογή ΟΛΩΝ των Configs
+            System.out.println("⚙️ Searching for configuration files...");
             for (String pattern : configPatterns) {
                 List<String> matches = tree.stream().map(i -> i.get("path")).filter(p -> p.endsWith(pattern)).collect(Collectors.toList());
                 for (String path : matches) {
                     String content = fetchFileContent(ownerAndRepo, path, accessToken);
-                    if (content != null) allConfigsFound.put(path, content);
+                    if (content != null) {
+                        allConfigsFound.put(path, content);
+                        System.out.println("   [+] Config collected: " + path);
+                    }
                 }
             }
         } catch (Exception e) {
-            System.err.println("⚠️ Search Error: " + e.getMessage());
+            System.err.println("⚠️ [STAGE 4 ERROR] GitHub Search Failure: " + e.getMessage());
         }
 
-        if (realManifestContent == null) throw new RuntimeException("No manifest file found.");
+        if (realManifestContent == null) {
+            System.err.println("❌ ABORTING: No manifest file found in the repository.");
+            throw new RuntimeException("No manifest file found.");
+        }
 
-        // 4. Προετοιμασία AI Prompt
+        // 5. Προετοιμασία AI Prompt
+        System.out.println("🧠 [STAGE 5] Formatting AI Prompt & Output Schema...");
         var outputConverter = new BeanOutputConverter<>(InfrastructureAnalysis.class);
         StringBuilder configsBuilder = new StringBuilder();
         if (allConfigsFound.isEmpty()) {
@@ -107,47 +136,49 @@ public class RepoService {
         }
 
         String promptMessage = String.format("""
-        You are an expert Cloud Architect for the 'Bram Vortex' platform.
-        Generate a detailed "Architectural Blueprint" JSON for the following repository.
-        
-        DO NOT GENERATE CODE. Generate only infrastructure specifications.
-        
-        CONTEXT:
-        - Target Cloud: %1$s
-        - Requested Compute Type: %2$s
-        - Target Region: %3$s
-        - Manifest: %4$s
-        
-        --- MANIFEST CONTENT ---
-        %5$s
-        
-        --- ALL DETECTED CONFIGURATIONS ---
-        %6$s
-        
-        REQUIRED TASKS:
-        1. Identify tech stack (Language, Framework, App Type).
-        2. Define 'targetCompute' based on '%2$s' (e.g., 'AWS ECS Fargate', 'Azure AKS').
-        3. CRITICAL: Fill 'computeSpecs' with technical hardware requirements based on the tech stack:
-           - For Containers: include 'cpu_units', 'memory_mb', 'min_max_replicas'.
-           - For Kubernetes: include 'node_type' (instance size), 'autoscaling_range', 'min_nodes'.
-           - For VMs: include 'instance_family' (e.g., 't3.micro').
-        4. Extract ALL keys/values from the CONFIGURATIONS section into 'configurationSettings'. 
-           - If a key exists in both a .properties/.yml and a .env, prioritize the .env value.
-        5. Detect 'targetContainerPort' (e.g., 8080, 3000). Check configs for 'server.port' or 'PORT'.
-        6. Define necessary build steps and monitoring metrics.
-        
-        RULES:
-        - Respond ONLY with raw JSON. No markdown backticks.
-        - 'targetCloud' must be exactly "%1$s".
-        
-        SCHEMA:
-        %7$s
-        """,
+    You are an expert Cloud Architect for the 'Bram Vortex' platform.
+    Generate a detailed "Architectural Blueprint" JSON for the following repository.
+    
+    DO NOT GENERATE CODE. Generate only infrastructure specifications.
+    
+    CONTEXT:
+    - Target Cloud: %1$s
+    - Requested Compute Type: %2$s
+    - Target Region: %3$s
+    - Manifest: %4$s
+    
+    --- MANIFEST CONTENT ---
+    %5$s
+    
+    --- ALL DETECTED CONFIGURATIONS ---
+    %6$s
+    
+    REQUIRED TASKS:
+    1. Identify tech stack (Language, Framework, App Type).
+    2. Define 'targetCompute' based on '%2$s' (e.g., 'AWS ECS Fargate', 'Azure AKS').
+    3. CRITICAL: Fill 'computeSpecs' with technical hardware requirements based on the tech stack:
+       - For Containers: include 'cpu_units', 'memory_mb', 'min_max_replicas'.
+       - For Kubernetes: include 'node_type' (instance size), 'autoscaling_range', 'min_nodes'.
+       - For VMs: include 'instance_family' (e.g., 't3.micro').
+    4. Extract ALL keys/values from the CONFIGURATIONS section into 'configurationSettings'. 
+       - If a key exists in both a .properties/.yml and a .env, prioritize the .env value.
+    5. Detect 'targetContainerPort' (e.g., 8080, 3000). Check configs for 'server.port' or 'PORT'.
+    6. Define necessary build steps and monitoring metrics.
+    
+    RULES:
+    - Respond ONLY with raw JSON. No markdown backticks.
+    - 'targetCloud' must be exactly "%1$s".
+    
+    SCHEMA:
+    %7$s
+    """,
                 targetCloud, computeType, targetRegion, foundManifestPath,
                 realManifestContent, configsBuilder.toString(), outputConverter.getFormat());
 
-        // 5. Job Creation & Execution
+        // 6. Δημιουργία Job στη Βάση
         String jobId = UUID.randomUUID().toString();
+        System.out.println("💾 [STAGE 6] Saving Analysis Job to Database. Job ID: " + jobId);
+
         AnalysisJob job = new AnalysisJob();
         job.setJobId(jobId);
         job.setUserId(userId);
@@ -160,23 +191,29 @@ public class RepoService {
         job.setPromptMessage(promptMessage);
         jobRepository.save(job);
 
+        // 7. Ασύγχρονη εκτέλεση AI
+        System.out.println("🤖 [STAGE 7] Dispatching request to Gemini AI (Asynchronous)...");
         java.util.concurrent.CompletableFuture.runAsync(() -> {
             try {
+                System.out.println("📡 [ASYNC] AI call started for Job ID: " + jobId);
                 String aiResponse = chatModel.call(promptMessage);
+                System.out.println("📥 [ASYNC] AI Response received. Converting to Blueprint Object...");
+
                 InfrastructureAnalysis result = outputConverter.convert(aiResponse);
                 job.setBlueprintJson(objectMapper.writeValueAsString(result));
                 job.setStatus("COMPLETED");
                 jobRepository.save(job);
+                System.out.println("🏁 [FINISH] Job " + jobId + " completed successfully! Blueprint is ready.");
             } catch (Exception e) {
-                System.err.println("❌ AI Error: " + e.getMessage());
+                System.err.println("❌ [ASYNC ERROR] Processing failed for Job " + jobId + ": " + e.getMessage());
                 job.setStatus("FAILED");
                 jobRepository.save(job);
             }
         });
 
+        System.out.println("📡 [RETURN] Job created. Returning Job ID: " + jobId + "\n");
         return jobId;
     }
-
     private String fetchFileContent(String repo, String path, String token) {
         try {
             return restClient.get()
