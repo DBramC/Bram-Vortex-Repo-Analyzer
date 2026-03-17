@@ -192,7 +192,7 @@ public class RepoService {
 
         // 1. Terraform Generator Trigger
         try {
-            String terraformUrl = "http://bram-vortex-terraform-generator:8080/terraform/generate/" + jobId + "?userId=" + userId;
+            String terraformUrl = "http://terraform-generator-svc:80/terraform/generate/" + jobId + "?userId=" + userId;
             internalClient.post().uri(terraformUrl).retrieve().toBodilessEntity();
             System.out.println("✅ Terraform Generator triggered.");
         } catch (Exception e) {
@@ -201,7 +201,7 @@ public class RepoService {
 
         /* // 2. Ansible Generator Trigger (Future)
         try {
-            String ansibleUrl = "http://bram-vortex-ansible-generator:8080/ansible/generate/" + jobId + "?userId=" + userId;
+            String ansibleUrl = "http://ansible-generator-svc:80/ansible/generate/" + jobId + "?userId=" + userId;
             // internalClient.post().uri(ansibleUrl).retrieve().toBodilessEntity();
         } catch (Exception e) { System.err.println("Ansible Trigger Failed"); }
         */
@@ -209,7 +209,7 @@ public class RepoService {
         /*
         // 3. CI/CD Pipeline Generator Trigger (Future)
         try {
-            String pipelineUrl = "http://bram-vortex-pipeline-generator:8080/pipeline/generate/" + jobId + "?userId=" + userId;
+            String pipelineUrl = "http://pipeline-generator-svc:80/pipeline/generate/" + jobId + "?userId=" + userId;
             // internalClient.post().uri(pipelineUrl).retrieve().toBodilessEntity();
         } catch (Exception e) { System.err.println("Pipeline Trigger Failed"); }
         */
