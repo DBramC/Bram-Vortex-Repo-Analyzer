@@ -39,10 +39,6 @@ public class Repositories {
         return ResponseEntity.ok(repos);
     }
 
-    /**
-     * Endpoint 2: Ξεκινάει την ανάλυση.
-     * Ομοίως, παίρνουμε το userId από το Token.
-     */
     @PostMapping("/analyze")
     public ResponseEntity<String> startRepoAnalysis(
             @AuthenticationPrincipal String userId, // <--- Η ΑΛΛΑΓΗ ΕΙΝΑΙ ΕΔΩ

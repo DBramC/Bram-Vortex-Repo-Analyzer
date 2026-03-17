@@ -5,18 +5,22 @@ public class AnalysisRequest {
     private long repoId;
     private String repoName;
     private String repoUrl;
-    private String cloudProvider; // <-- ΝΕΟ ΠΕΔΙΟ
+    private String targetCloud;
+    private String computeType;
+    private String targetRegion;
 
     // Απαραίτητος Κενός Constructor
     public AnalysisRequest() {
     }
 
     // Full Constructor
-    public AnalysisRequest(long repoId, String repoName, String repoUrl, String cloudProvider) {
+    public AnalysisRequest(long repoId, String repoName, String repoUrl, String cloudProvider, String computeType, String targetRegion) {
         this.repoId = repoId;
         this.repoName = repoName;
         this.repoUrl = repoUrl;
-        this.cloudProvider = cloudProvider;
+        this.targetCloud = cloudProvider;
+        this.computeType = computeType;
+        this.targetRegion = targetRegion;
     }
 
     // Getters & Setters
@@ -44,11 +48,27 @@ public class AnalysisRequest {
         this.repoUrl = repoUrl;
     }
 
-    public String getCloudProvider() {
-        return cloudProvider;
+    public String getTargetCloud() {
+        return targetCloud;
     }
 
-    public void setCloudProvider(String cloudProvider) {
-        this.cloudProvider = cloudProvider;
+    public void setTargetCloud(String targetCloud) {
+        this.targetCloud = targetCloud;
+    }
+
+    public String getComputeType() {
+        return computeType;
+    }
+
+    public void setComputeType(String computeType) {
+        this.computeType = computeType;
+    }
+
+    public String getTargetRegion() {
+        return targetRegion;
+    }
+
+    public void setTargetRegion(String targetRegion) {
+        this.targetRegion = targetRegion;
     }
 }

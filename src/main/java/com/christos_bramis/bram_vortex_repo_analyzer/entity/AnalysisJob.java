@@ -23,11 +23,25 @@ public class AnalysisJob {
     @Column(name = "target_cloud")
     private String targetCloud;
 
+    @Column(name = "compute_type")
+    private String computeType;
+
+    public String getTargetRegion() {
+        return targetRegion;
+    }
+
+    public void setTargetRegion(String targetRegion) {
+        this.targetRegion = targetRegion;
+    }
+
+    @Column(name = "targetRegion")
+    private String targetRegion;
+
     @Column(name = "status", nullable = false)
     private String status;
 
     // Εδώ είναι η μαγεία της PostgreSQL! Αποθηκεύουμε το JSON σε μορφή jsonb ή text
-    @Column(name = "blueprint_json", columnDefinition = "text")
+    @Column(name = "blueprint_json", columnDefinition = "jsonb")
     private String blueprintJson;
 
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -75,5 +89,13 @@ public class AnalysisJob {
 
     public void setPromptMessage(String promptMessage) {
         this.promptMessage = promptMessage;
+    }
+
+    public String getComputeType() {
+        return computeType;
+    }
+
+    public void setComputeType(String computeType) {
+        this.computeType = computeType;
     }
 }

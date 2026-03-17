@@ -10,7 +10,6 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 import java.util.List;
@@ -70,10 +69,17 @@ public class RepoService {
         System.out.println("Target URL: " + request.getRepoUrl());
 
         // 1. Παίρνουμε τον Cloud Provider
-        String targetCloud = request.getCloudProvider() != null && !request.getCloudProvider().isEmpty()
-                ? request.getCloudProvider()
+        String targetCloud = request.getTargetCloud() != null && !request.getTargetCloud().isEmpty()
+                ? request.getTargetCloud()
                 : "AWS";
 
+        String computeType = request.getComputeType() != null && !request.getComputeType().isEmpty()
+                ? request.getComputeType()
+                : "managed container";
+
+        String targetRegion = request.getTargetRegion() != null && !request.getTargetRegion().isEmpty()
+                ? request.getTargetRegion()
+                : "eu-central-1";
         // 2. Εξάγουμε το "owner/repo" από το URL (π.χ. από https://github.com/dbramc/bram-vortex -> dbramc/bram-vortex)
         String ownerAndRepo = request.getRepoUrl()
                 .replace("https://github.com/", "")
@@ -159,6 +165,8 @@ public class RepoService {
         var outputConverter = new BeanOutputConverter<>(InfrastructureAnalysis.class);
         String formatInstructions = outputConverter.getFormat();
 
+
+
         // 5. Φτιάχνουμε το Δυναμικό System Prompt χρησιμοποιώντας το ΠΡΑΓΜΑΤΙΚΟ ΠΕΡΙΕΧΟΜΕΝΟ
         String configSection = (realConfigContent != null && !realConfigContent.isEmpty())
                 ? realConfigContent
@@ -197,11 +205,12 @@ public class RepoService {
         %s
         """,
                 targetCloud,
+                computeType,
                 foundManifestPath,
                 (foundConfigPath != null ? foundConfigPath : "None"),
                 realManifestContent,
                 configSection,
-                targetCloud,
+                computeType, computeType, targetCloud,
                 formatInstructions);
 
         // 6. Δημιουργούμε το μοναδικό Job ID
@@ -216,7 +225,7 @@ public class RepoService {
         // Προσοχή: Ελέγχουμε αν υπάρχει το getRepoName() στο Request σου, αν όχι βάζουμε το ownerAndRepo
         String repoName = request.getRepoName() != null ? request.getRepoName() : ownerAndRepo;
         job.setRepoName(repoName);
-
+        job.setComputeType(computeType);
         job.setTargetCloud(targetCloud);
         job.setStatus("ANALYZING");
 
