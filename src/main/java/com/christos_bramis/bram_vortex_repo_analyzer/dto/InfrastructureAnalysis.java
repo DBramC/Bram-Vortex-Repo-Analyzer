@@ -8,13 +8,10 @@ public class InfrastructureAnalysis {
     private String primaryLanguage;
     private String framework;
     private List<String> requiredDatabasesAndCaches;
+    private Map<String, String> computeSpecs;
     private String targetCloud;
-
-    // Μετονομασία σύμφωνα με τις οδηγίες σου
     private String targetCompute;
     private int targetContainerPort;
-
-    // Νέο πεδίο για να κρατάει τα settings (application.properties / .env)
     private Map<String, String> configurationSettings;
 
     private List<String> buildSteps;

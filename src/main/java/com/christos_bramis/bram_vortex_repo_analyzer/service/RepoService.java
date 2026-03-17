@@ -141,7 +141,12 @@ public class RepoService {
         TASKS:
         1. Identify application type, primary language, and framework.
         2. Detect infrastructure dependencies (Databases, Caches, MQ).
-        3. Define 'targetCompute' based on "%2$s" for region "%3$s" (e.g. AWS EKS, GCP Cloud Run).
+        3. The user requested '%2$s' in '%3$s'.
+            - Define 'targetCompute' (e.g., 'AWS ECS Fargate' or 'AWS EC2').
+            - In 'computeSpecs', provide EXACT technical details:
+                * For Containers: Define 'cpu_units' (e.g., 256, 512, 1024), 'memory_mb' (e.g., 512, 2048) and 'min_max_replicas'.
+                * For VMs: Define 'instance_family' (e.g., 't3.micro', 't3.medium') based on framework requirements.
+                * For Kubernetes: Define 'node_type' and 'autoscaling_range'."
         4. CRITICAL: Extract ALL configuration keys and values from ALL provided files in the "ALL DETECTED CONFIGURATIONS" section. 
            - Map them into the 'configurationSettings' field.
            - If a key exists in both a .properties and a .env file, prioritize the .env value.
