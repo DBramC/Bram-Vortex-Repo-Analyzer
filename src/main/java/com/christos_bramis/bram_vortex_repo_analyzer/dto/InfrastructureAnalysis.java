@@ -1,103 +1,53 @@
 package com.christos_bramis.bram_vortex_repo_analyzer.dto;
 
 import java.util.List;
+import java.util.Map;
 
 public class InfrastructureAnalysis {
-
-    // Βασικά Χαρακτηριστικά Εφαρμογής
     private String applicationType;
     private String primaryLanguage;
     private String framework;
-
-    // Εξαρτήσεις
     private List<String> requiredDatabasesAndCaches;
-
-    // Προδιαγραφές Υποδομής (Terraform / K8s)
     private String targetCloud;
-    private String recommendedCompute;
-    private Integer recommendedContainerPort;
 
-    // Προδιαγραφές CI/CD (Pipelines)
-    private List<String> ciCdBuildSteps;
+    // Μετονομασία σύμφωνα με τις οδηγίες σου
+    private String targetCompute;
+    private int targetContainerPort;
 
-    // Προδιαγραφές Παρακολούθησης (Monitoring)
+    // Νέο πεδίο για να κρατάει τα settings (application.properties / .env)
+    private Map<String, String> configurationSettings;
+
+    private List<String> buildSteps;
     private List<String> monitoringMetrics;
 
-    // Απαραίτητος κενός Constructor για το Spring AI / JSON Parsing
-    public InfrastructureAnalysis() {
-    }
-
     // --- Getters & Setters ---
+    public String getApplicationType() { return applicationType; }
+    public void setApplicationType(String applicationType) { this.applicationType = applicationType; }
 
-    public String getApplicationType() {
-        return applicationType;
-    }
+    public String getPrimaryLanguage() { return primaryLanguage; }
+    public void setPrimaryLanguage(String primaryLanguage) { this.primaryLanguage = primaryLanguage; }
 
-    public void setApplicationType(String applicationType) {
-        this.applicationType = applicationType;
-    }
+    public String getFramework() { return framework; }
+    public void setFramework(String framework) { this.framework = framework; }
 
-    public String getPrimaryLanguage() {
-        return primaryLanguage;
-    }
+    public List<String> getRequiredDatabasesAndCaches() { return requiredDatabasesAndCaches; }
+    public void setRequiredDatabasesAndCaches(List<String> requiredDatabasesAndCaches) { this.requiredDatabasesAndCaches = requiredDatabasesAndCaches; }
 
-    public void setPrimaryLanguage(String primaryLanguage) {
-        this.primaryLanguage = primaryLanguage;
-    }
+    public String getTargetCloud() { return targetCloud; }
+    public void setTargetCloud(String targetCloud) { this.targetCloud = targetCloud; }
 
-    public String getFramework() {
-        return framework;
-    }
+    public String getTargetCompute() { return targetCompute; }
+    public void setTargetCompute(String targetCompute) { this.targetCompute = targetCompute; }
 
-    public void setFramework(String framework) {
-        this.framework = framework;
-    }
+    public int getTargetContainerPort() { return targetContainerPort; }
+    public void setTargetContainerPort(int targetContainerPort) { this.targetContainerPort = targetContainerPort; }
 
-    public List<String> getRequiredDatabasesAndCaches() {
-        return requiredDatabasesAndCaches;
-    }
+    public Map<String, String> getConfigurationSettings() { return configurationSettings; }
+    public void setConfigurationSettings(Map<String, String> configurationSettings) { this.configurationSettings = configurationSettings; }
 
-    public void setRequiredDatabasesAndCaches(List<String> requiredDatabasesAndCaches) {
-        this.requiredDatabasesAndCaches = requiredDatabasesAndCaches;
-    }
+    public List<String> getBuildSteps() { return buildSteps; }
+    public void setBuildSteps(List<String> buildSteps) { this.buildSteps = buildSteps; }
 
-    public String getTargetCloud() {
-        return targetCloud;
-    }
-
-    public void setTargetCloud(String targetCloud) {
-        this.targetCloud = targetCloud;
-    }
-
-    public String getRecommendedCompute() {
-        return recommendedCompute;
-    }
-
-    public void setRecommendedCompute(String recommendedCompute) {
-        this.recommendedCompute = recommendedCompute;
-    }
-
-    public Integer getRecommendedContainerPort() {
-        return recommendedContainerPort;
-    }
-
-    public void setRecommendedContainerPort(Integer recommendedContainerPort) {
-        this.recommendedContainerPort = recommendedContainerPort;
-    }
-
-    public List<String> getCiCdBuildSteps() {
-        return ciCdBuildSteps;
-    }
-
-    public void setCiCdBuildSteps(List<String> ciCdBuildSteps) {
-        this.ciCdBuildSteps = ciCdBuildSteps;
-    }
-
-    public List<String> getMonitoringMetrics() {
-        return monitoringMetrics;
-    }
-
-    public void setMonitoringMetrics(List<String> monitoringMetrics) {
-        this.monitoringMetrics = monitoringMetrics;
-    }
+    public List<String> getMonitoringMetrics() { return monitoringMetrics; }
+    public void setMonitoringMetrics(List<String> monitoringMetrics) { this.monitoringMetrics = monitoringMetrics; }
 }
