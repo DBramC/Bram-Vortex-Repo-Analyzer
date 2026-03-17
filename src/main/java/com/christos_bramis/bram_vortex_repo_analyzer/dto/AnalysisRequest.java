@@ -21,7 +21,7 @@ public class AnalysisRequest {
         this.targetCloud = cloudProvider;
         this.computeType = computeType;
         this.targetRegion = targetRegion;
-    }
+    } //
 
     // Getters & Setters
     public long getRepoId() {
