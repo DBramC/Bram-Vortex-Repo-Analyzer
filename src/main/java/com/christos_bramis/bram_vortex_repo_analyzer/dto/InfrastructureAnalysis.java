@@ -8,7 +8,7 @@ public class InfrastructureAnalysis {
     private String primaryLanguage;
     private String framework;
     private List<String> requiredDatabasesAndCaches;
-    private Map<String, String> computeSpecs; // <-- Τεχνικές προδιαγραφές (CPU, RAM, κλπ)
+    private Map<String, String> computeSpecs;
     private String targetCloud;
     private String targetCompute;
     private int targetContainerPort;
@@ -16,7 +16,35 @@ public class InfrastructureAnalysis {
     private List<String> buildSteps;
     private List<String> monitoringMetrics;
 
-    // --- Getters & Setters ---
+    // Το νέο πεδίο για την Ansible υποστήριξη
+    private DeploymentMetadata deploymentMetadata;
+
+    // --- Inner Class για το Metadata ---
+    public static class DeploymentMetadata {
+        private String osDistro;
+        private String javaVersion;
+        private String executionUser;
+        private String jvmArgs;
+        private String healthCheckEndpoint;
+
+        // Getters & Setters για την εσωτερική κλάση
+        public String getOsDistro() { return osDistro; }
+        public void setOsDistro(String osDistro) { this.osDistro = osDistro; }
+
+        public String getJavaVersion() { return javaVersion; }
+        public void setJavaVersion(String javaVersion) { this.javaVersion = javaVersion; }
+
+        public String getExecutionUser() { return executionUser; }
+        public void setExecutionUser(String executionUser) { this.executionUser = executionUser; }
+
+        public String getJvmArgs() { return jvmArgs; }
+        public void setJvmArgs(String jvmArgs) { this.jvmArgs = jvmArgs; }
+
+        public String getHealthCheckEndpoint() { return healthCheckEndpoint; }
+        public void setHealthCheckEndpoint(String healthCheckEndpoint) { this.healthCheckEndpoint = healthCheckEndpoint; }
+    }
+
+    // --- Getters & Setters για την κεντρική κλάση ---
     public String getApplicationType() { return applicationType; }
     public void setApplicationType(String applicationType) { this.applicationType = applicationType; }
 
@@ -49,4 +77,7 @@ public class InfrastructureAnalysis {
 
     public List<String> getMonitoringMetrics() { return monitoringMetrics; }
     public void setMonitoringMetrics(List<String> monitoringMetrics) { this.monitoringMetrics = monitoringMetrics; }
+
+    public DeploymentMetadata getDeploymentMetadata() { return deploymentMetadata; }
+    public void setDeploymentMetadata(DeploymentMetadata deploymentMetadata) { this.deploymentMetadata = deploymentMetadata; }
 }

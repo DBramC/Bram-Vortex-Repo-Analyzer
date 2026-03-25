@@ -131,42 +131,48 @@ public class RepoService {
 
         // --- PROMPT (UNTOUCHED) ---
         String promptMessage = String.format("""
-    You are an expert Cloud Architect for the 'Bram Vortex' platform.
-    Generate a detailed "Architectural Blueprint" JSON for the following repository.
-    
-    DO NOT GENERATE CODE. Generate only infrastructure specifications.
-    
-    CONTEXT:
-    - Target Cloud: %1$s
-    - Requested Compute Type: %2$s
-    - Target Region: %3$s
-    - Manifest: %4$s
-    
-    --- MANIFEST CONTENT ---
-    %5$s
-    
-    --- ALL DETECTED CONFIGURATIONS ---
-    %6$s
-    
-    REQUIRED TASKS:
-    1. Identify tech stack (Language, Framework, App Type).
-    2. Define 'targetCompute' based on '%2$s' (e.g., 'AWS ECS Fargate', 'Azure AKS').
-    3. CRITICAL: Fill 'computeSpecs' with technical hardware requirements based on the tech stack:
-       - For Containers: include 'cpu_units', 'memory_mb', 'min_max_replicas'.
-       - For Kubernetes: include 'node_type' (instance size), 'autoscaling_range', 'min_nodes'.
-       - For VMs: include 'instance_family' (e.g., 't3.micro').
-    4. Extract ALL keys/values from the CONFIGURATIONS section into 'configurationSettings'. 
-       - If a key exists in both a .properties/.yml and a .env, prioritize the .env value.
-    5. Detect 'targetContainerPort' (e.g., 8080, 3000). Check configs for 'server.port' or 'PORT'.
-    6. Define necessary build steps and monitoring metrics.
-    
-    RULES:
-    - Respond ONLY with raw JSON. No markdown backticks.
-    - 'targetCloud' must be exactly "%1$s".
-    
-    SCHEMA:
-    %7$s
-    """,
+            You are an expert Cloud Architect for the 'Bram Vortex' platform.
+            Generate a detailed "Architectural Blueprint" JSON for the following repository.
+
+            DO NOT GENERATE CODE. Generate only infrastructure specifications.
+
+            CONTEXT:
+            - Target Cloud: %1$s
+            - Requested Compute Type: %2$s
+            - Target Region: %3$s
+            - Manifest: %4$s
+
+            --- MANIFEST CONTENT ---
+            %5$s
+
+            --- ALL DETECTED CONFIGURATIONS ---
+            %6$s
+
+            REQUIRED TASKS:
+            1. Identify tech stack (Language, Framework, App Type).
+            2. Define 'targetCompute' based on '%2$s' (e.g., 'AWS ECS Fargate', 'Azure AKS').
+            3. CRITICAL: Fill 'computeSpecs' with technical hardware requirements based on the tech stack:
+               - For Containers: include 'cpu_units', 'memory_mb', 'min_max_replicas'.
+               - For Kubernetes: include 'node_type' (instance size), 'autoscaling_range', 'min_nodes'.
+                - For VMs: include 'instance_family' (e.g., 't3.micro').
+            4. Extract ALL keys/values from the CONFIGURATIONS section into 'configurationSettings'. 
+                - If a key exists in both a .properties/.yml and a .env, prioritize the .env value.
+            5. Detect 'targetContainerPort' (e.g., 8080, 3000). Check configs for 'server.port' or 'PORT'.
+            6. Define necessary build steps and monitoring metrics.
+            7. Generate 'deploymentMetadata' ONLY if compute type is 'Virtual Machine':
+               - 'osDistro': Recommend the best Linux distribution (e.g., 'Ubuntu 22.04 LTS').
+               - 'javaVersion': Recommended JDK version detected from the manifest (e.g., '17', '21').
+               - 'executionUser': A secure system username for the application.
+               - 'jvmArgs': Recommended memory/performance settings based on 'computeSpecs'.
+               - 'healthCheckEndpoint': Identify the application health or actuator path.
+
+            RULES:
+            - Respond ONLY with raw JSON. No markdown backticks.
+            - 'targetCloud' must be exactly "%1$s".
+
+            SCHEMA:
+            %7$s
+            """,
                 targetCloud, computeType, targetRegion, foundManifestPath,
                 realManifestContent, configsBuilder.toString(), outputConverter.getFormat());
 
