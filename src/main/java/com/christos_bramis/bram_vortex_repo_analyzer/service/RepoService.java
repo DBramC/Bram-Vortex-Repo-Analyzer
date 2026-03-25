@@ -216,7 +216,17 @@ public class RepoService {
     private void triggerDownstreamServices(String jobId, String userId) {
         System.out.println("📢 [WEBHOOK] Triggering downstream generators for Job: " + jobId);
 
-        // 1. Terraform
+        // 1. Φέρνουμε το Job από τη βάση για να ελέγξουμε το computeType
+        AnalysisJob job = jobRepository.findById(jobId).orElse(null);
+        if (job == null) {
+            System.err.println("⚠️ [WEBHOOK ERROR] Job not found in DB: " + jobId);
+            return;
+        }
+
+        String computeType = job.getComputeType(); // Παίρνουμε το compute type από το entity
+
+        // 2. Terraform Generator - Τρέχει ΠΑΝΤΑ
+        // (Χρειάζεται είτε για το provisioning του VM είτε για το Managed Container infra)
         try {
             String terraformUrl = "http://terraform-generator-svc:80/terraform/generate/" + jobId + "?userId=" + userId;
             internalClient.post().uri(terraformUrl).retrieve().toBodilessEntity();
@@ -225,19 +235,31 @@ public class RepoService {
             System.err.println("⚠️ [WEBHOOK ERROR] Terraform Trigger Failed: " + e.getMessage());
         }
 
-        /* // 2. Ansible (Future)
-        try {
-            String ansibleUrl = "http://ansible-generator-svc:80/ansible/generate/" + jobId + "?userId=" + userId;
-            System.out.println("✅ Ansible Generator triggered.");
-        } catch (Exception e) { System.err.println("⚠️ Ansible Trigger Failed"); }
-        */
+        // 3. Ansible Generator - ΜΟΝΟ αν έχουμε Virtual Machine
+        if ("Virtual Machine".equalsIgnoreCase(computeType)) {
+            try {
+                System.out.println("🛠️ [WEBHOOK] Compute type is 'Virtual Machine'. Triggering Ansible...");
+                String ansibleUrl = "http://ansible-generator-svc:80/ansible/generate/" + jobId + "?userId=" + userId;
 
-        /* // 3. Pipelines (Future)
-        try {
-            String pipelineUrl = "http://pipeline-generator-svc:80/pipeline/generate/" + jobId + "?userId=" + userId;
-            System.out.println("✅ Pipeline Generator triggered.");
-        } catch (Exception e) { System.err.println("⚠️ Pipeline Trigger Failed"); }
-        */
+                // Χρησιμοποιούμε τον internalClient για το POST request
+                internalClient.post().uri(ansibleUrl).retrieve().toBodilessEntity();
+
+                System.out.println("✅ Ansible Generator triggered via Webhook.");
+            } catch (Exception e) {
+                System.err.println("⚠️ [WEBHOOK ERROR] Ansible Trigger Failed: " + e.getMessage());
+            }
+        } else {
+            System.out.println("ℹ️ [WEBHOOK] Compute type is '" + computeType + "'. Skipping Ansible generator.");
+        }
+
+        // 4. Pipelines (Future)
+    /*
+    try {
+        String pipelineUrl = "http://pipeline-generator-svc:80/pipeline/generate/" + jobId + "?userId=" + userId;
+        internalClient.post().uri(pipelineUrl).retrieve().toBodilessEntity();
+        System.out.println("✅ Pipeline Generator triggered.");
+    } catch (Exception e) { System.err.println("⚠️ Pipeline Trigger Failed"); }
+    */
     }
 
     private String fetchFileContent(String repo, String path, String token) {
