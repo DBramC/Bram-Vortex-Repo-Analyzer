@@ -200,7 +200,7 @@ public class RepoService {
                 System.out.println("📥 [ASYNC] AI Response received. Converting to Blueprint...");
 
                 InfrastructureAnalysis result = outputConverter.convert(aiResponse);
-                job.setBlueprintJson(objectMapper.writeValueAsString(result));
+                job.setBlueprintJson(objectMapper.valueToTree(result));
                 job.setStatus("COMPLETED");
                 jobRepository.save(job);
                 System.out.println("🏁 [FINISH] Job " + jobId + " completed successfully! Blueprint is ready.");

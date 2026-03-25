@@ -1,6 +1,10 @@
 package com.christos_bramis.bram_vortex_repo_analyzer.entity;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import java.time.LocalDateTime;
 
 @Entity
@@ -40,10 +44,9 @@ public class AnalysisJob {
     @Column(name = "status", nullable = false)
     private String status;
 
-    // Εδώ είναι η μαγεία της PostgreSQL! Αποθηκεύουμε το JSON σε μορφή jsonb ή text
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "blueprint_json", columnDefinition = "jsonb")
-    private String blueprintJson;
-
+    private JsonNode blueprintJson;
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -72,8 +75,8 @@ public class AnalysisJob {
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
 
-    public String getBlueprintJson() { return blueprintJson; }
-    public void setBlueprintJson(String blueprintJson) { this.blueprintJson = blueprintJson; }
+    public JsonNode getBlueprintJson() { return blueprintJson; }
+    public void setBlueprintJson(JsonNode blueprintJson) { this.blueprintJson = blueprintJson; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
