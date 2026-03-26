@@ -5,8 +5,7 @@ import com.christos_bramis.bram_vortex_repo_analyzer.dto.RepoResponse;
 import com.christos_bramis.bram_vortex_repo_analyzer.entity.AnalysisJob;
 import com.christos_bramis.bram_vortex_repo_analyzer.service.RepoService;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.security.core.Authentication; // <--- Σωστό Import
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -23,50 +22,62 @@ public class Repositories {
 
     /**
      * Endpoint 1: Φέρνει όλα τα Repositories.
-     * Το userId το παίρνουμε αυτόματα από το JWT (μέσω του @AuthenticationPrincipal).
      */
     @GetMapping("/repos")
-    public ResponseEntity<List<RepoResponse>> getAllRepositories(
-            @AuthenticationPrincipal String userId) { // <--- Η ΑΛΛΑΓΗ ΕΙΝΑΙ ΕΔΩ
+    public ResponseEntity<List<RepoResponse>> getAllRepositories(Authentication auth) {
 
-        // Αμυντικός έλεγχος (αν για κάποιο λόγο το filter δεν δούλεψε σωστά)
-        if (userId == null) {
+        if (auth == null) {
             return ResponseEntity.status(401).build();
         }
 
-        System.out.println("Authenticated Request for User ID: " + userId);
+        String userId = auth.getName();
+        System.out.println("🚀 [DASHBOARD] Fetching repos for User ID: " + userId);
 
         List<RepoResponse> repos = repoService.getUserRepositories(userId);
         return ResponseEntity.ok(repos);
     }
 
+    /**
+     * Endpoint 2: Ξεκινάει την ανάλυση.
+     * Εδώ παίρνουμε το Token από τα credentials για το Token Propagation.
+     */
     @PostMapping("/analyze")
     public ResponseEntity<String> startRepoAnalysis(
-            @AuthenticationPrincipal String userId,
-            JwtAuthenticationToken auth,// <--- Η ΑΛΛΑΓΗ ΕΙΝΑΙ ΕΔΩ
+            Authentication auth, // <--- Χρησιμοποιούμε το γενικό Authentication object
             @RequestBody AnalysisRequest request) {
 
-        System.out.println("Analysis Request from User ID: " + userId);
+        String userId = auth.getName();
 
-        String token = "Bearer " + auth.getToken().getTokenValue();
+        /* * Παίρνουμε το token που αποθηκεύσαμε στο JwtAuthenticationFilter.
+         * Πλέον δεν θα φας IllegalStateException!
+         */
+        String token = "Bearer " + auth.getCredentials().toString();
 
-        // Στέλνουμε το token στο service
+        System.out.println("🧠 [DASHBOARD] Analysis Request from User ID: " + userId);
+
+        // Στέλνουμε το userId και το token στο service
         String jobId = repoService.startAnalysis(userId, token, request);
         return ResponseEntity.ok(jobId);
     }
 
+    /**
+     * Endpoint 3: Επιστρέφει τις λεπτομέρειες ενός Job.
+     */
     @GetMapping("/jobs/{jobId}")
-    public ResponseEntity<AnalysisJob> getAnalysisJob(@PathVariable String jobId) {
+    public ResponseEntity<AnalysisJob> getAnalysisJob(@PathVariable String jobId, Authentication auth) {
 
-        // Καλούμε τη νέα μέθοδο του Service που φέρνει ΟΛΟ το Job
+        String userId = auth.getName();
         AnalysisJob job = repoService.getAnalysisJob(jobId);
 
         if (job == null) {
-            return ResponseEntity.notFound().build(); // 404 αν δεν βρέθηκε το Job
+            return ResponseEntity.notFound().build();
         }
 
-        // Το Spring Boot (Jackson) θα μετατρέψει αυτόματα το αντικείμενο job
-        // σε ένα ωραιότατο JSON με τα πεδία: status, promptMessage, blueprintJson κλπ.
+        // Security Check: Μόνο ο ιδιοκτήτης βλέπει το Job του
+        if (!job.getUserId().equals(userId)) {
+            return ResponseEntity.status(403).build();
+        }
+
         return ResponseEntity.ok(job);
     }
 }

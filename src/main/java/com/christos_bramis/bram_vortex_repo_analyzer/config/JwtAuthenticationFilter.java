@@ -27,20 +27,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         this.vaultService = vaultService;
     }
 
-    /**
-     * Αυτή η μέθοδος τρέχει ΜΟΝΟ ΜΙΑ ΦΟΡΑ όταν ξεκινάει η εφαρμογή.
-     * Φέρνει το Public Key από τη Vault και το ετοιμάζει για χρήση.
-     */
     @PostConstruct
     public void init() {
         try {
             System.out.println("🔄 Attempting to fetch Public Key from Vault...");
-
-            // 1. Φέρνουμε το String (PEM) από τη Vault
             String pem = vaultService.getSigningPublicKey();
 
             if (pem != null) {
-                // 2. Το μετατρέπουμε σε Java PublicKey αντικείμενο
                 this.publicKey = vaultService.getKeyFromPEM(pem);
                 System.out.println("✅ JWT Public Key loaded successfully!");
             } else {
@@ -48,7 +41,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
         } catch (Exception e) {
             System.err.println("❌ Critical Error loading Public Key: " + e.getMessage());
-            e.printStackTrace();
         }
     }
 
@@ -58,30 +50,30 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String authHeader = request.getHeader("Authorization");
 
-        // Ελέγχουμε αν υπάρχει header και αν έχουμε φορτώσει το κλειδί
         if (publicKey != null && authHeader != null && authHeader.startsWith("Bearer ")) {
-            String token = authHeader.substring(7); // Αφαιρούμε το "Bearer "
+            String token = authHeader.substring(7);
 
             try {
-                // Επαλήθευση της υπογραφής του Token χρησιμοποιώντας το Public Key
+                // Επαλήθευση υπογραφής με το Public Key (RSA)
                 Claims claims = Jwts.parserBuilder()
                         .setSigningKey(publicKey)
                         .build()
                         .parseClaimsJws(token)
                         .getBody();
 
-                String userId = claims.getSubject(); // Το ID του χρήστη (π.χ. "12345")
+                String userId = claims.getSubject();
 
-                // Αν το token είναι έγκυρο, βάζουμε τον χρήστη στο SecurityContext
-                // (Εδώ βάζουμε κενή λίστα ρόλων, αν θες ρόλους τους διαβάζεις από τα claims)
+                /* * Η ΑΛΛΑΓΗ ΕΔΩ:
+                 * Αντί για 'null', βάζουμε το 'token' στα credentials.
+                 * Έτσι το "κλειδώνουμε" στο SecurityContext και μπορούμε να το πάρουμε
+                 * στον Controller για να το στείλουμε στην Ansible/Terraform.
+                 */
                 UsernamePasswordAuthenticationToken auth =
-                        new UsernamePasswordAuthenticationToken(userId, null, Collections.emptyList());
+                        new UsernamePasswordAuthenticationToken(userId, token, Collections.emptyList());
 
                 SecurityContextHolder.getContext().setAuthentication(auth);
 
             } catch (Exception e) {
-                // Αν το token είναι ληγμένο ή ψεύτικο, απλά δεν κάνουμε authenticate.
-                // Το Spring Security θα ρίξει 401/403 μετά.
                 System.out.println("⛔ Invalid Token: " + e.getMessage());
             }
         }
