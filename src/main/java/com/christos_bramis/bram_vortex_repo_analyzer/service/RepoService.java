@@ -242,7 +242,7 @@ public class RepoService {
         }
 
         // 3. Ansible Generator - ΜΟΝΟ αν έχουμε Virtual Machine
-        if ("Virtual Machine".equalsIgnoreCase(computeType)) {
+        if ("VM".equalsIgnoreCase(computeType)) {
             try {
                 System.out.println("🛠️ [WEBHOOK] Compute type is 'Virtual Machine'. Triggering Ansible...");
                 String ansibleUrl = "http://ansible-generator-svc:80/ansible/generate/" + jobId + "?userId=" + userId;
