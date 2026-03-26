@@ -6,6 +6,7 @@ import com.christos_bramis.bram_vortex_repo_analyzer.entity.AnalysisJob;
 import com.christos_bramis.bram_vortex_repo_analyzer.service.RepoService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -41,13 +42,16 @@ public class Repositories {
 
     @PostMapping("/analyze")
     public ResponseEntity<String> startRepoAnalysis(
-            @AuthenticationPrincipal String userId, // <--- Η ΑΛΛΑΓΗ ΕΙΝΑΙ ΕΔΩ
+            @AuthenticationPrincipal String userId,
+            JwtAuthenticationToken auth,// <--- Η ΑΛΛΑΓΗ ΕΙΝΑΙ ΕΔΩ
             @RequestBody AnalysisRequest request) {
 
         System.out.println("Analysis Request from User ID: " + userId);
 
-        String jobId = repoService.startAnalysis(userId, request);
+        String token = "Bearer " + auth.getToken().getTokenValue();
 
+        // Στέλνουμε το token στο service
+        String jobId = repoService.startAnalysis(userId, token, request);
         return ResponseEntity.ok(jobId);
     }
 

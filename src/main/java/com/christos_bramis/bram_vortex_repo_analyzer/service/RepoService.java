@@ -47,7 +47,7 @@ public class RepoService {
                 .body(new ParameterizedTypeReference<List<RepoResponse>>() {});
     }
 
-    public String startAnalysis(String userId, AnalysisRequest request) {
+    public String startAnalysis(String userId, String token, AnalysisRequest request) {
         System.out.println("\n🚀 [VORTEX-ANALYZER] --- STARTING NEW ANALYSIS ---");
         System.out.println("👤 User ID: " + userId);
 
@@ -206,7 +206,7 @@ public class RepoService {
                 System.out.println("🏁 [FINISH] Job " + jobId + " completed successfully! Blueprint is ready.");
 
                 // Triggering downstream
-                triggerDownstreamServices(jobId, userId);
+                triggerDownstreamServices(jobId, userId, token);
 
             } catch (Exception e) {
                 System.err.println("❌ [ASYNC ERROR] Processing failed for Job " + jobId + ": " + e.getMessage());
@@ -219,7 +219,7 @@ public class RepoService {
         return jobId;
     }
 
-    private void triggerDownstreamServices(String jobId, String userId) {
+    private void triggerDownstreamServices(String jobId, String userId, String token) {
         System.out.println("📢 [WEBHOOK] Triggering downstream generators for Job: " + jobId);
 
         // 1. Φέρνουμε το Job από τη βάση για να ελέγξουμε το computeType
@@ -233,31 +233,34 @@ public class RepoService {
 
         // 2. Terraform Generator - Τρέχει ΠΑΝΤΑ
         // (Χρειάζεται είτε για το provisioning του VM είτε για το Managed Container infra)
+        // 1. Terraform Generator - ΠΡΟΣΘΕΣΕ ΤΟ TOKEN
         try {
             String terraformUrl = "http://terraform-generator-svc:80/terraform/generate/" + jobId + "?userId=" + userId;
-            internalClient.post().uri(terraformUrl).retrieve().toBodilessEntity();
-            System.out.println("✅ Terraform Generator triggered via Webhook.");
+            internalClient.post()
+                    .uri(terraformUrl)
+                    .header("Authorization", token) // <--- ΤΩΡΑ ΤΟ ΣΤΕΛΝΕΙΣ ΚΑΙ ΕΔΩ
+                    .retrieve()
+                    .toBodilessEntity();
+            System.out.println("✅ Terraform Generator triggered.");
         } catch (Exception e) {
             System.err.println("⚠️ [WEBHOOK ERROR] Terraform Trigger Failed: " + e.getMessage());
         }
 
-        // 3. Ansible Generator - ΜΟΝΟ αν έχουμε Virtual Machine
+        // 2. Ansible Generator - ΠΡΟΣΘΕΣΕ ΤΟ TOKEN
         if ("VM".equalsIgnoreCase(computeType)) {
             try {
-                System.out.println("🛠️ [WEBHOOK] Compute type is 'Virtual Machine'. Triggering Ansible...");
                 String ansibleUrl = "http://ansible-generator-svc:80/ansible/generate/" + jobId + "?userId=" + userId;
-
-                // Χρησιμοποιούμε τον internalClient για το POST request
-                internalClient.post().uri(ansibleUrl).retrieve().toBodilessEntity();
-
-                System.out.println("✅ Ansible Generator triggered via Webhook.");
+                internalClient.post()
+                        .uri(ansibleUrl)
+                        .header("Authorization", token) // <--- ΤΩΡΑ ΤΟ ΣΤΕΛΝΕΙΣ ΚΑΙ ΕΔΩ
+                        .retrieve()
+                        .toBodilessEntity();
+                System.out.println("✅ Ansible Generator triggered.");
             } catch (Exception e) {
+                // Εδώ έπαιρνες το 403 γιατί έλειπε το παραπάνω header!
                 System.err.println("⚠️ [WEBHOOK ERROR] Ansible Trigger Failed: " + e.getMessage());
             }
-        } else {
-            System.out.println("ℹ️ [WEBHOOK] Compute type is '" + computeType + "'. Skipping Ansible generator.");
         }
-
         // 4. Pipelines (Future)
     /*
     try {
