@@ -11,6 +11,7 @@ public class InfrastructureAnalysis {
     private Map<String, String> computeSpecs;
     private String targetCloud;
     private String targetCompute;
+    private String computeCategory;
     private int targetContainerPort;
     private Map<String, String> configurationSettings;
     private List<String> buildSteps;
@@ -80,4 +81,12 @@ public class InfrastructureAnalysis {
 
     public DeploymentMetadata getDeploymentMetadata() { return deploymentMetadata; }
     public void setDeploymentMetadata(DeploymentMetadata deploymentMetadata) { this.deploymentMetadata = deploymentMetadata; }
+
+    public String getComputeCategory() {
+        return computeCategory;
+    }
+
+    public void setComputeCategory(String computeCategory) {
+        this.computeCategory = computeCategory;
+    }
 }
