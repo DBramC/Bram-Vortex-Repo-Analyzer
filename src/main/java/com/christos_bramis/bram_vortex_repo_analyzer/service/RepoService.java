@@ -150,16 +150,17 @@ public class RepoService {
 
             REQUIRED TASKS:
             1. Identify tech stack (Language, Framework, App Type).
-            2. Define 'targetCompute' based on '%2$s' (e.g., 'AWS ECS Fargate', 'Azure AKS').
-            3. CRITICAL: Fill 'computeSpecs' with technical hardware requirements based on the tech stack:
+            2. Define 'computeCategory' as exactly '%2$s'.
+            3. Define 'targetCompute' based on '%2$s' (e.g., 'AWS ECS Fargate', 'Azure AKS').
+            4. CRITICAL: Fill 'computeSpecs' with technical hardware requirements based on the tech stack:
                - For Containers: include 'cpu_units', 'memory_mb', 'min_max_replicas'.
                - For Kubernetes: include 'node_type' (instance size), 'autoscaling_range', 'min_nodes'.
                 - For VMs: include 'instance_family' (e.g., 't3.micro').
-            4. Extract ALL keys/values from the CONFIGURATIONS section into 'configurationSettings'. 
+            5. Extract ALL keys/values from the CONFIGURATIONS section into 'configurationSettings'. 
                 - If a key exists in both a .properties/.yml and a .env, prioritize the .env value.
-            5. Detect 'targetContainerPort' (e.g., 8080, 3000). Check configs for 'server.port' or 'PORT'.
-            6. Define necessary build steps and monitoring metrics.
-            7. Generate 'deploymentMetadata' ONLY if compute type is 'Virtual Machine':
+            6. Detect 'targetContainerPort' (e.g., 8080, 3000). Check configs for 'server.port' or 'PORT'.
+            7. Define necessary build steps and monitoring metrics.
+            8. Generate 'deploymentMetadata' ONLY if compute type is 'Virtual Machine':
                - 'osDistro': Recommend the best Linux distribution (e.g., 'Ubuntu 22.04 LTS').
                - 'javaVersion': Recommended JDK version detected from the manifest (e.g., '17', '21').
                - 'executionUser': A secure system username for the application.
