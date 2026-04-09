@@ -255,28 +255,71 @@ public class RepoService {
         }
 
         // 2. Ansible Generator - ΠΡΟΣΘΕΣΕ ΤΟ TOKEN
-        if ("VM".equalsIgnoreCase(computeType)) {
+        if ("VM".equalsIgnoreCase(computeType) || "Virtual Machine".equalsIgnoreCase(computeType)) {
+
             try {
                 String ansibleUrl = "http://ansible-generator-svc:80/ansible/generate/" + jobId + "?userId=" + userId;
-                internalClient.post()
-                        .uri(ansibleUrl)
-                        .header("Authorization", token) // <--- ΤΩΡΑ ΤΟ ΣΤΕΛΝΕΙΣ ΚΑΙ ΕΔΩ
-                        .retrieve()
-                        .toBodilessEntity();
+                internalClient.post().uri(ansibleUrl).header("Authorization", token).retrieve().toBodilessEntity();
                 System.out.println("✅ Ansible Generator triggered.");
-            } catch (Exception e) {
-                // Εδώ έπαιρνες το 403 γιατί έλειπε το παραπάνω header!
-                System.err.println("⚠️ [WEBHOOK ERROR] Ansible Trigger Failed: " + e.getMessage());
-            }
+            } catch (Exception e) { System.err.println("⚠️ Ansible Trigger Failed"); }
+        } else {
+
+            System.out.println("⏭️ [ORCHESTRATOR] Target is " + computeType + ". Skipping Ansible Generator.");
+            job.setAnsibleStatus("SKIPPED");
+            jobRepository.save(job);
         }
         // 4. Pipelines (Future)
-    /*
-    try {
-        String pipelineUrl = "http://pipeline-generator-svc:80/pipeline/generate/" + jobId + "?userId=" + userId;
-        internalClient.post().uri(pipelineUrl).retrieve().toBodilessEntity();
-        System.out.println("✅ Pipeline Generator triggered.");
-    } catch (Exception e) { System.err.println("⚠️ Pipeline Trigger Failed"); }
-    */
+
+        try {
+            String pipelineUrl = "http://pipeline-generator-svc:80/pipeline/generate/" + jobId;
+
+            internalClient.post()
+                    .uri(pipelineUrl)
+                    .header("Authorization", token) // JWT Token
+                    .retrieve()
+                    .toBodilessEntity();
+            System.out.println("✅ Pipeline Generator triggered.");
+        } catch (Exception e) {
+            System.err.println("⚠️ [WEBHOOK ERROR] Pipeline Trigger Failed: " + e.getMessage());
+        }
+
+    }
+
+    public void handleServiceCallback(String analysisJobId, String serviceName, String status) {
+        AnalysisJob job = jobRepository.findById(analysisJobId)
+                .orElseThrow(() -> new RuntimeException("Job not found"));
+
+        // Ενημερώνουμε το σωστό πεδίο
+        switch (serviceName.toUpperCase()) {
+            case "TERRAFORM" -> job.setTerraformStatus(status);
+            case "ANSIBLE" -> job.setAnsibleStatus(status);
+            case "PIPELINE" -> job.setPipelineStatus(status);
+        }
+        jobRepository.save(job);
+
+        // Έλεγχος: Αν κάποιο απέτυχε, σταματάμε
+        if ("FAILED".equals(status)) {
+            System.err.println("❌ [ORCHESTRATOR] " + serviceName + " failed! Halting workflow.");
+            job.setStatus("FAILED");
+            jobRepository.save(job);
+            return;
+        }
+
+        // Έλεγχος ολοκλήρωσης (Gather)
+        boolean isTerraformDone = "COMPLETED".equals(job.getTerraformStatus());
+        boolean isPipelineDone = "COMPLETED".equals(job.getPipelineStatus());
+        // Το Ansible θεωρείται έτοιμο είτε αν έκανε COMPLETED (σε VM), είτε αν είναι SKIPPED (σε Containers)
+        boolean isAnsibleDone = "COMPLETED".equals(job.getAnsibleStatus()) || "SKIPPED".equals(job.getAnsibleStatus());
+
+        if (isTerraformDone && isPipelineDone && isAnsibleDone) {
+            System.out.println("🎉 [ORCHESTRATOR] ALL GENERATORS COMPLETED! Triggering Architecture Checker...");
+
+            // Αλλάζουμε το κεντρικό status
+            job.setStatus("READY_FOR_CHECK");
+            jobRepository.save(job);
+
+            // TODO: Κάλεσε το Architecture Checker Service (ή το Execution Service)
+        }
     }
 
     private String fetchFileContent(String repo, String path, String token) {

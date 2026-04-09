@@ -80,4 +80,22 @@ public class Repositories {
 
         return ResponseEntity.ok(job);
     }
+
+    @PostMapping("/internal/callback/{analysisJobId}")
+    public ResponseEntity<Void> receiveServiceCallback(
+            @PathVariable String analysisJobId,
+            @RequestParam String service,
+            @RequestParam String status) {
+
+        System.out.println("📥 [WEBHOOK RECEIVED] Job: " + analysisJobId + " | Service: " + service + " | Status: " + status);
+
+        try {
+            // Καλούμε τη μέθοδο του Service που αναλαμβάνει το Orchestration
+            repoService.handleServiceCallback(analysisJobId, service, status);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            System.err.println("❌ [WEBHOOK ERROR] Failed to process callback: " + e.getMessage());
+            return ResponseEntity.internalServerError().build();
+        }
+    }
 }

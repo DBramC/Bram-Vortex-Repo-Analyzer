@@ -53,6 +53,15 @@ public class AnalysisJob {
     @Column(columnDefinition = "TEXT")
     private String promptMessage;
 
+    @Column(name = "terraform_status")
+    private String terraformStatus = "PENDING";
+
+    @Column(name = "ansible_status")
+    private String ansibleStatus = "PENDING";
+
+    @Column(name = "pipeline_status")
+    private String pipelineStatus = "PENDING";
+
     // --- Constructors ---
     public AnalysisJob() {}
 
@@ -100,5 +109,29 @@ public class AnalysisJob {
 
     public void setComputeType(String computeType) {
         this.computeType = computeType;
+    }
+
+    public String getTerraformStatus() {
+        return terraformStatus;
+    }
+
+    public void setTerraformStatus(String terraformStatus) {
+        this.terraformStatus = terraformStatus;
+    }
+
+    public String getAnsibleStatus() {
+        return ansibleStatus;
+    }
+
+    public void setAnsibleStatus(String ansibleStatus) {
+        this.ansibleStatus = ansibleStatus;
+    }
+
+    public String getPipelineStatus() {
+        return pipelineStatus;
+    }
+
+    public void setPipelineStatus(String pipelineStatus) {
+        this.pipelineStatus = pipelineStatus;
     }
 }
