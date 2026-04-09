@@ -4,10 +4,14 @@ import java.util.List;
 import java.util.Map;
 
 public class InfrastructureAnalysis {
+
+    // --- Βασικά Χαρακτηριστικά Εφαρμογής ---
     private String applicationType;
     private String primaryLanguage;
     private String framework;
     private List<String> requiredDatabasesAndCaches;
+
+    // --- Προδιαγραφές Υποδομής ---
     private Map<String, String> computeSpecs;
     private String targetCloud;
     private String targetCompute;
@@ -17,23 +21,63 @@ public class InfrastructureAnalysis {
     private List<String> buildSteps;
     private List<String> monitoringMetrics;
 
-    // Το νέο πεδίο για την Ansible υποστήριξη
-    private DeploymentMetadata deploymentMetadata;
+    // --- ΕΞΥΠΝΗ ΕΠΙΛΟΓΗ ΑΡΧΙΤΕΚΤΟΝΙΚΗΣ (ΝΕΟ) ---
+    private List<String> validComputeTypes;
+    private String computeReasoning;
 
-    // --- Inner Class για το Metadata ---
+    // --- Εξειδικευμένα Metadata ---
+    private DeploymentMetadata deploymentMetadata;
+    private CiCdMetadata ciCdMetadata;
+
+    // ==========================================
+    // INNER CLASSES
+    // ==========================================
+
+    /**
+     * Δεδομένα που απαιτούνται από το Pipeline Generator
+     * για να στήσει το GitHub Actions CI/CD.
+     */
+    public static class CiCdMetadata {
+        private String buildTool;
+        private String languageVersion;
+        private List<String> buildCommands;
+        private List<String> testCommands;
+        private String artifactPath;
+        private boolean hasDockerfile;
+
+        // Getters & Setters
+        public String getBuildTool() { return buildTool; }
+        public void setBuildTool(String buildTool) { this.buildTool = buildTool; }
+
+        public String getLanguageVersion() { return languageVersion; }
+        public void setLanguageVersion(String languageVersion) { this.languageVersion = languageVersion; }
+
+        public List<String> getBuildCommands() { return buildCommands; }
+        public void setBuildCommands(List<String> buildCommands) { this.buildCommands = buildCommands; }
+
+        public List<String> getTestCommands() { return testCommands; }
+        public void setTestCommands(List<String> testCommands) { this.testCommands = testCommands; }
+
+        public String getArtifactPath() { return artifactPath; }
+        public void setArtifactPath(String artifactPath) { this.artifactPath = artifactPath; }
+
+        public boolean isHasDockerfile() { return hasDockerfile; }
+        public void setHasDockerfile(boolean hasDockerfile) { this.hasDockerfile = hasDockerfile; }
+    }
+
+    /**
+     * Δεδομένα που απαιτούνται από το Ansible Generator
+     * αποκλειστικά για την περίπτωση Virtual Machine (OS Configuration).
+     */
     public static class DeploymentMetadata {
         private String osDistro;
-        private String javaVersion;
         private String executionUser;
         private String jvmArgs;
         private String healthCheckEndpoint;
 
-        // Getters & Setters για την εσωτερική κλάση
+        // Getters & Setters
         public String getOsDistro() { return osDistro; }
         public void setOsDistro(String osDistro) { this.osDistro = osDistro; }
-
-        public String getJavaVersion() { return javaVersion; }
-        public void setJavaVersion(String javaVersion) { this.javaVersion = javaVersion; }
 
         public String getExecutionUser() { return executionUser; }
         public void setExecutionUser(String executionUser) { this.executionUser = executionUser; }
@@ -45,7 +89,10 @@ public class InfrastructureAnalysis {
         public void setHealthCheckEndpoint(String healthCheckEndpoint) { this.healthCheckEndpoint = healthCheckEndpoint; }
     }
 
-    // --- Getters & Setters για την κεντρική κλάση ---
+    // ==========================================
+    // GETTERS & SETTERS (Main Class)
+    // ==========================================
+
     public String getApplicationType() { return applicationType; }
     public void setApplicationType(String applicationType) { this.applicationType = applicationType; }
 
@@ -67,6 +114,9 @@ public class InfrastructureAnalysis {
     public String getTargetCompute() { return targetCompute; }
     public void setTargetCompute(String targetCompute) { this.targetCompute = targetCompute; }
 
+    public String getComputeCategory() { return computeCategory; }
+    public void setComputeCategory(String computeCategory) { this.computeCategory = computeCategory; }
+
     public int getTargetContainerPort() { return targetContainerPort; }
     public void setTargetContainerPort(int targetContainerPort) { this.targetContainerPort = targetContainerPort; }
 
@@ -79,14 +129,17 @@ public class InfrastructureAnalysis {
     public List<String> getMonitoringMetrics() { return monitoringMetrics; }
     public void setMonitoringMetrics(List<String> monitoringMetrics) { this.monitoringMetrics = monitoringMetrics; }
 
+    // --- Νέα Getters/Setters ---
+
+    public List<String> getValidComputeTypes() { return validComputeTypes; }
+    public void setValidComputeTypes(List<String> validComputeTypes) { this.validComputeTypes = validComputeTypes; }
+
+    public String getComputeReasoning() { return computeReasoning; }
+    public void setComputeReasoning(String computeReasoning) { this.computeReasoning = computeReasoning; }
+
     public DeploymentMetadata getDeploymentMetadata() { return deploymentMetadata; }
     public void setDeploymentMetadata(DeploymentMetadata deploymentMetadata) { this.deploymentMetadata = deploymentMetadata; }
 
-    public String getComputeCategory() {
-        return computeCategory;
-    }
-
-    public void setComputeCategory(String computeCategory) {
-        this.computeCategory = computeCategory;
-    }
+    public CiCdMetadata getCiCdMetadata() { return ciCdMetadata; }
+    public void setCiCdMetadata(CiCdMetadata ciCdMetadata) { this.ciCdMetadata = ciCdMetadata; }
 }
