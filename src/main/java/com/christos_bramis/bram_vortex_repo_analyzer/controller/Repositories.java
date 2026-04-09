@@ -40,28 +40,23 @@ public class Repositories {
     /**
      * Endpoint 2: Ξεκινάει την ανάλυση.
      * Εδώ παίρνουμε το Token από τα credentials για το Token Propagation.
-     */
-    @PostMapping("/analyze")
-    public ResponseEntity<String> startRepoAnalysis(
-            Authentication auth, // <--- Χρησιμοποιούμε το γενικό Authentication object
-            @RequestBody AnalysisRequest request) {
+     * */
+     @PostMapping("/analyze")
+     public ResponseEntity<String> startRepoAnalysis(
+     Authentication auth,
+     @RequestBody AnalysisRequest request) {
 
-        String userId = auth.getName();
+     String userId = auth.getName();
 
-        /* * Παίρνουμε το token που αποθηκεύσαμε στο JwtAuthenticationFilter.
-         * Πλέον δεν θα φας IllegalStateException!
-         */
-        String token = "Bearer " + auth.getCredentials().toString();
+     // Πάρε ΜΟΝΟ το raw token string
+     String token = auth.getCredentials().toString();
 
-        System.out.println(token);
+     System.out.println("🧠 [DASHBOARD] Analysis Request from User ID: " + userId);
 
-        System.out.println("🧠 [DASHBOARD] Analysis Request from User ID: " + userId);
-
-        // Στέλνουμε το userId και το token στο service
-        String jobId = repoService.startAnalysis(userId, token, request);
-        return ResponseEntity.ok(jobId);
-    }
-
+     // Στείλε το ΚΑΘΑΡΟ token στο service
+     String jobId = repoService.startAnalysis(userId, token, request);
+     return ResponseEntity.ok(jobId);
+     }
     /**
      * Endpoint 3: Επιστρέφει τις λεπτομέρειες ενός Job.
      */
