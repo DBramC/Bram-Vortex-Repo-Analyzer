@@ -4,11 +4,15 @@ import com.christos_bramis.bram_vortex_repo_analyzer.dto.AnalysisRequest;
 import com.christos_bramis.bram_vortex_repo_analyzer.dto.RepoResponse;
 import com.christos_bramis.bram_vortex_repo_analyzer.entity.AnalysisJob;
 import com.christos_bramis.bram_vortex_repo_analyzer.service.RepoService;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication; // <--- Σωστό Import
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/dashboard")
@@ -61,17 +65,17 @@ public class Repositories {
      * Endpoint 3: Επιστρέφει τις λεπτομέρειες ενός Job.
      */
     @GetMapping("/jobs/{jobId}")
-    public ResponseEntity<AnalysisJob> getAnalysisJob(@PathVariable String jobId, Authentication auth) {
+    public ResponseEntity<Optional<AnalysisJob>> getAnalysisJob(@PathVariable String jobId, Authentication auth) {
 
         String userId = auth.getName();
-        AnalysisJob job = repoService.getAnalysisJob(jobId);
+        Optional<AnalysisJob> job = repoService.getAnalysisJob(jobId);
 
-        if (job == null) {
+        if (job.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
 
         // Security Check: Μόνο ο ιδιοκτήτης βλέπει το Job του
-        if (!job.getUserId().equals(userId)) {
+        if (!job.get().equals(userId)) {
             return ResponseEntity.status(403).build();
         }
 
@@ -94,5 +98,34 @@ public class Repositories {
             System.err.println("❌ [WEBHOOK ERROR] Failed to process callback: " + e.getMessage());
             return ResponseEntity.internalServerError().build();
         }
+    }
+
+    @GetMapping("/download/{jobId}")
+    public ResponseEntity<byte[]> downloadMasterZip(@PathVariable String jobId) {
+        // Καλούμε το service. Το αποτέλεσμα πρέπει να είναι Optional<AnalysisJob>
+        return repoService.getAnalysisJob(jobId)
+                .map(job -> {
+                    byte[] zipContent = job.getMasterZip();
+
+                    // Έλεγχος αν το BLOB στη βάση είναι άδειο
+                    if (zipContent == null || zipContent.length == 0) {
+                        System.err.println("⚠️ [DOWNLOAD] Job found but Master ZIP is empty for ID: " + jobId);
+                        return ResponseEntity.status(HttpStatus.NO_CONTENT).<byte[]>build();
+                    }
+
+                    System.out.println("✅ [DOWNLOAD] Serving ZIP for Job: " + jobId + " (Size: " + zipContent.length + " bytes)");
+
+                    // Επιστροφή του αρχείου με τα σωστά Headers για τον Browser
+                    return ResponseEntity.ok()
+                            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"vortex-package-" + jobId + ".zip\"")
+                            .contentType(MediaType.parseMediaType("application/zip"))
+                            .contentLength(zipContent.length)
+                            .body(zipContent);
+                })
+                // Αν το findById δεν βρει τίποτα στη βάση (Empty Optional)
+                .orElseGet(() -> {
+                    System.err.println("❌ [DOWNLOAD] Job ID not found: " + jobId);
+                    return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+                });
     }
 }

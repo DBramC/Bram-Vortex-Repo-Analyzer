@@ -422,7 +422,7 @@ public class RepoService {
         }
     }
 
-    public AnalysisJob getAnalysisJob(String jobId) {
-        return jobRepository.findById(jobId).orElse(null);
+    public Optional<AnalysisJob>  getAnalysisJob(String jobId) {
+        return jobRepository.findById(jobId);
     }
 }
