@@ -11,6 +11,11 @@ import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -289,15 +294,19 @@ public class RepoService {
         AnalysisJob job = jobRepository.findById(analysisJobId)
                 .orElseThrow(() -> new RuntimeException("Job not found"));
 
-        // Ενημερώνουμε το σωστό πεδίο
+        System.out.println("📥 [CALLBACK] Service: " + serviceName + " | Status: " + status + " for Job: " + analysisJobId);
+
+        // 1. Ενημέρωση του συγκεκριμένου status στη βάση
         switch (serviceName.toUpperCase()) {
             case "TERRAFORM" -> job.setTerraformStatus(status);
             case "ANSIBLE" -> job.setAnsibleStatus(status);
             case "PIPELINE" -> job.setPipelineStatus(status);
         }
+
+        // Αποθηκεύουμε την ενδιάμεση πρόοδο
         jobRepository.save(job);
 
-        // Έλεγχος: Αν κάποιο απέτυχε, σταματάμε
+        // 2. Αν κάποιο service αποτύχει, ακυρώνουμε όλο το workflow
         if ("FAILED".equals(status)) {
             System.err.println("❌ [ORCHESTRATOR] " + serviceName + " failed! Halting workflow.");
             job.setStatus("FAILED");
@@ -305,23 +314,54 @@ public class RepoService {
             return;
         }
 
-        // Έλεγχος ολοκλήρωσης (Gather)
+        // 3. Έλεγχος ολοκλήρωσης όλων των επιμέρους εργασιών (Barrier)
         boolean isTerraformDone = "COMPLETED".equals(job.getTerraformStatus());
         boolean isPipelineDone = "COMPLETED".equals(job.getPipelineStatus());
-        // Το Ansible θεωρείται έτοιμο είτε αν έκανε COMPLETED (σε VM), είτε αν είναι SKIPPED (σε Containers)
+        // Το Ansible είναι "έτοιμο" αν είναι COMPLETED ή αν παρακάμφθηκε (SKIPPED)
         boolean isAnsibleDone = "COMPLETED".equals(job.getAnsibleStatus()) || "SKIPPED".equals(job.getAnsibleStatus());
 
+        // 4. ΜΟΝΟ αν τελείωσαν όλα, προχωράμε στη συγχώνευση
         if (isTerraformDone && isPipelineDone && isAnsibleDone) {
-            System.out.println("🎉 [ORCHESTRATOR] ALL GENERATORS COMPLETED! Triggering Architecture Checker...");
+            System.out.println("🎉 [ORCHESTRATOR] ALL GENERATORS COMPLETED! Starting Master ZIP aggregation...");
 
-            // Αλλάζουμε το κεντρικό status
-            job.setStatus("READY_FOR_CHECK");
-            jobRepository.save(job);
+            try {
+                // Ανάκτηση των bytes χρησιμοποιώντας τις Native Query μεθόδους του Repository
+                byte[] tfZipBytes = jobRepository.findTerraformZip(analysisJobId);
+                byte[] pipeZipBytes = jobRepository.findPipelineZip(analysisJobId);
 
-            // TODO: Κάλεσε το Architecture Checker Service (ή το Execution Service)
+                // Αν το Ansible έγινε SKIPPED, δεν ψάχνουμε για ZIP (θα επέστρεφε null ούτως ή άλλως)
+                byte[] ansZipBytes = "SKIPPED".equals(job.getAnsibleStatus()) ? null : jobRepository.findAnsibleZip(analysisJobId);
+
+                // Δημιουργία του ενιαίου Master ZIP
+                byte[] masterZip = createMasterZip(tfZipBytes, ansZipBytes, pipeZipBytes);
+
+                if (masterZip != null) {
+                    // Αποθήκευση του τελικού αρχείου και αλλαγή status για το επόμενο στάδιο
+                    job.setMasterZip(masterZip);
+                    job.setStatus("READY_FOR_CHECK");
+                    jobRepository.save(job);
+
+                    System.out.println("📦 [ORCHESTRATOR] Master ZIP created successfully! Size: " + masterZip.length + " bytes.");
+
+                    // Εδώ θα μπει η κλήση για το επόμενο service (Architecture Checker)
+                    // triggerArchitectureChecker(job);
+                } else {
+                    throw new RuntimeException("Master ZIP creation returned null");
+                }
+
+            } catch (Exception e) {
+                System.err.println("❌ [ORCHESTRATOR ERROR] Aggregation failed: " + e.getMessage());
+                job.setStatus("FAILED");
+                jobRepository.save(job);
+            }
+        } else {
+            // Ενημερωτικό μήνυμα για το ποιο service περιμένουμε ακόμα
+            System.out.println("⏳ [ORCHESTRATOR] Waiting for remaining services... " +
+                    "(TF: " + job.getTerraformStatus() +
+                    ", Pipe: " + job.getPipelineStatus() +
+                    ", Ansible: " + job.getAnsibleStatus() + ")");
         }
     }
-
     private String fetchFileContent(String repo, String path, String token) {
         try {
             return restClient.get()
@@ -331,6 +371,55 @@ public class RepoService {
                     .retrieve()
                     .body(String.class);
         } catch (Exception e) { return null; }
+    }
+
+    /**
+     * Ενώνει 3 ξεχωριστά byte arrays (ZIPs) σε ένα ενιαίο Master ZIP.
+     */
+    private byte[] createMasterZip(byte[] terraformZip, byte[] ansibleZip, byte[] pipelineZip) {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (ZipOutputStream zos = new ZipOutputStream(baos)) {
+
+            // 1. Το Terraform μπαίνει στον φάκελο "infrastructure/"
+            if (terraformZip != null && terraformZip.length > 0) {
+                appendZipToMaster(zos, terraformZip, "infrastructure/");
+            }
+
+            // 2. Το Ansible μπαίνει στον φάκελο "configuration/"
+            if (ansibleZip != null && ansibleZip.length > 0) {
+                appendZipToMaster(zos, ansibleZip, "configuration/");
+            }
+
+            // 3. Το Pipeline ΔΕΝ παίρνει φάκελο, γιατί έχει ήδη το ".github/workflows/"
+            if (pipelineZip != null && pipelineZip.length > 0) {
+                appendZipToMaster(zos, pipelineZip, "");
+            }
+
+            zos.finish();
+            zos.flush();
+        } catch (Exception e) {
+            System.err.println("❌ [ZIP MERGER ERROR] Failed to merge zips: " + e.getMessage());
+            return null; // Σε περίπτωση λάθους
+        }
+        return baos.toByteArray();
+    }
+
+    /**
+     * Διαβάζει ένα μικρό ZIP και μεταφέρει τα αρχεία του στο μεγάλο ZIP.
+     */
+    private void appendZipToMaster(ZipOutputStream zos, byte[] zipData, String folderPrefix) throws Exception {
+        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipData))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                // Φτιάχνουμε το νέο path προσθέτοντας τον φάκελο μπροστά
+                String newEntryName = folderPrefix + entry.getName();
+                zos.putNextEntry(new ZipEntry(newEntryName));
+
+                // Αντιγράφουμε τα δεδομένα του αρχείου (Απαιτεί Java 9+)
+                zis.transferTo(zos);
+                zos.closeEntry();
+            }
+        }
     }
 
     public AnalysisJob getAnalysisJob(String jobId) {

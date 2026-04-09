@@ -62,6 +62,10 @@ public class AnalysisJob {
     @Column(name = "pipeline_status")
     private String pipelineStatus = "PENDING";
 
+    @JdbcTypeCode(SqlTypes.BINARY)
+    @Column(name = "master_zip", columnDefinition = "bytea")
+    private byte[] masterZip;
+
     // --- Constructors ---
     public AnalysisJob() {}
 
@@ -133,5 +137,13 @@ public class AnalysisJob {
 
     public void setPipelineStatus(String pipelineStatus) {
         this.pipelineStatus = pipelineStatus;
+    }
+
+    public byte[] getMasterZip() {
+        return masterZip;
+    }
+
+    public void setMasterZip(byte[] masterZip) {
+        this.masterZip = masterZip;
     }
 }
