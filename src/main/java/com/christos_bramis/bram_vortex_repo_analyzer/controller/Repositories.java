@@ -65,23 +65,26 @@ public class Repositories {
      * Endpoint 3: Επιστρέφει τις λεπτομέρειες ενός Job.
      */
     @GetMapping("/jobs/{jobId}")
-    public ResponseEntity<Optional<AnalysisJob>> getAnalysisJob(@PathVariable String jobId, Authentication auth) {
+    public ResponseEntity<AnalysisJob> getAnalysisJob(@PathVariable String jobId, Authentication auth) {
 
-        String userId = auth.getName();
-        Optional<AnalysisJob> job = repoService.getAnalysisJob(jobId);
+        String currentUserId = auth.getName(); // Το ID από το JWT
+        Optional<AnalysisJob> jobOpt = repoService.getAnalysisJob(jobId);
 
-        if (job.isEmpty()) {
+        if (jobOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
 
-        // Security Check: Μόνο ο ιδιοκτήτης βλέπει το Job του
-        if (!job.get().equals(userId)) {
+        AnalysisJob job = jobOpt.get();
+
+        // ΣΩΣΤΗ ΣΥΓΚΡΙΣΗ: String με String
+        // Υποθέτω ότι το AnalysisJob έχει μέθοδο getUserId() ή getOwnerId()
+        if (!job.getUserId().equals(currentUserId)) {
+            System.err.println("⛔ Security Breach: User " + currentUserId + " tried to access job of " + job.getUserId());
             return ResponseEntity.status(403).build();
         }
 
         return ResponseEntity.ok(job);
     }
-
     @PostMapping("/internal/callback/{analysisJobId}")
     public ResponseEntity<Void> receiveServiceCallback(
             @PathVariable String analysisJobId,
