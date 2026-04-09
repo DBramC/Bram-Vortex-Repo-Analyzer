@@ -104,13 +104,21 @@ public class Repositories {
     }
 
     @GetMapping("/download/{jobId}")
-    public ResponseEntity<byte[]> downloadMasterZip(@PathVariable String jobId) {
-        // Καλούμε το service. Το αποτέλεσμα πρέπει να είναι Optional<AnalysisJob>
+    public ResponseEntity<byte[]> downloadMasterZip(@PathVariable String jobId, Authentication auth) {
+        // 1. Πάρε το ID του συνδεδεμένου χρήστη
+        String currentUserId = auth.getName();
+
         return repoService.getAnalysisJob(jobId)
                 .map(job -> {
+                    // 2. SECURITY CHECK: Είναι ο ιδιοκτήτης;
+                    if (!job.getUserId().equals(currentUserId)) {
+                        System.err.println("⛔ [DOWNLOAD REJECTED] User " + currentUserId + " tried to steal job " + jobId);
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN).<byte[]>build();
+                    }
+
                     byte[] zipContent = job.getMasterZip();
 
-                    // Έλεγχος αν το BLOB στη βάση είναι άδειο
+                    // 3. Έλεγχος αν το BLOB είναι άδειο
                     if (zipContent == null || zipContent.length == 0) {
                         System.err.println("⚠️ [DOWNLOAD] Job found but Master ZIP is empty for ID: " + jobId);
                         return ResponseEntity.status(HttpStatus.NO_CONTENT).<byte[]>build();
@@ -118,14 +126,13 @@ public class Repositories {
 
                     System.out.println("✅ [DOWNLOAD] Serving ZIP for Job: " + jobId + " (Size: " + zipContent.length + " bytes)");
 
-                    // Επιστροφή του αρχείου με τα σωστά Headers για τον Browser
+                    // 4. Επιστροφή αρχείου
                     return ResponseEntity.ok()
                             .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"vortex-package-" + jobId + ".zip\"")
                             .contentType(MediaType.parseMediaType("application/zip"))
                             .contentLength(zipContent.length)
                             .body(zipContent);
                 })
-                // Αν το findById δεν βρει τίποτα στη βάση (Empty Optional)
                 .orElseGet(() -> {
                     System.err.println("❌ [DOWNLOAD] Job ID not found: " + jobId);
                     return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
