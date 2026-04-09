@@ -53,6 +53,8 @@ public class Repositories {
          */
         String token = "Bearer " + auth.getCredentials().toString();
 
+        System.out.println(token);
+
         System.out.println("🧠 [DASHBOARD] Analysis Request from User ID: " + userId);
 
         // Στέλνουμε το userId και το token στο service
