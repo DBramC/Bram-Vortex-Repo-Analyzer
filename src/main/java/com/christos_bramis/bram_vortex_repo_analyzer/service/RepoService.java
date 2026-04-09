@@ -251,7 +251,7 @@ public class RepoService {
             String terraformUrl = "http://terraform-generator-svc:80/terraform/generate/" + jobId + "?userId=" + userId;
             internalClient.post()
                     .uri(terraformUrl)
-                    .header("Authorization", token) // <--- ΤΩΡΑ ΤΟ ΣΤΕΛΝΕΙΣ ΚΑΙ ΕΔΩ
+                    .header("Authorization", "Bearer " + token) // <--- ΤΩΡΑ ΤΟ ΣΤΕΛΝΕΙΣ ΚΑΙ ΕΔΩ
                     .retrieve()
                     .toBodilessEntity();
             System.out.println("✅ Terraform Generator triggered.");
@@ -264,7 +264,7 @@ public class RepoService {
 
             try {
                 String ansibleUrl = "http://ansible-generator-svc:80/ansible/generate/" + jobId + "?userId=" + userId;
-                internalClient.post().uri(ansibleUrl).header("Authorization", token).retrieve().toBodilessEntity();
+                internalClient.post().uri(ansibleUrl).header("Authorization", "Bearer " + token).retrieve().toBodilessEntity();
                 System.out.println("✅ Ansible Generator triggered.");
             } catch (Exception e) { System.err.println("⚠️ Ansible Trigger Failed"); }
         } else {
@@ -280,7 +280,7 @@ public class RepoService {
 
             internalClient.post()
                     .uri(pipelineUrl)
-                    .header("Authorization", token) // JWT Token
+                    .header("Authorization", "Bearer " + token) // JWT Token
                     .retrieve()
                     .toBodilessEntity();
             System.out.println("✅ Pipeline Generator triggered.");
