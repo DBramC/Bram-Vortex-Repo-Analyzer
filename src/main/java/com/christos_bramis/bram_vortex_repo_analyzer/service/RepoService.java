@@ -214,7 +214,7 @@ public class RepoService {
 
                 InfrastructureAnalysis result = outputConverter.convert(aiResponse);
                 job.setBlueprintJson(objectMapper.valueToTree(result));
-                job.setStatus("COMPLETED");
+                job.setStatus("ANALYZING");
                 jobRepository.save(job);
                 System.out.println("🏁 [FINISH] Job " + jobId + " completed successfully! Blueprint is ready.");
 
