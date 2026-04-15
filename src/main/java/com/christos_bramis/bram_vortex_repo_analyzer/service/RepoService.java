@@ -284,7 +284,7 @@ public class RepoService {
         }
     }
 
-    public void handleServiceCallback(String analysisJobId, String serviceName, String status) {
+    public void handleServiceCallback(String analysisJobId, String serviceName, String status, String token) {
         AnalysisJob job = jobRepository.findById(analysisJobId)
                 .orElseThrow(() -> new RuntimeException("Job not found"));
 
@@ -332,7 +332,7 @@ public class RepoService {
                 // 👈 ΕΔΩ ΞΕΚΙΝΑΕΙ Ο VALIDATOR!
                 job.setValidatorStatus("TRIGGERED");
                 jobRepository.save(job);
-                triggerArchitectureValidator(job);
+                triggerArchitectureValidator(job, token);
 
             } catch (Exception e) {
                 System.err.println("❌ [ORCHESTRATOR ERROR] Failed to create RAW Zip or trigger Validator: " + e.getMessage());
@@ -355,14 +355,13 @@ public class RepoService {
         }
     }
 
-    private void triggerArchitectureValidator(AnalysisJob job) {
+    private void triggerArchitectureValidator(AnalysisJob job, String token) {
         try {
             String validatorUrl = "http://architecture-validator-svc:80/validator/validate/" + job.getJobId();
-            String userGithubToken = vaultService.getGithubToken(job.getUserId());
 
             internalClient.post()
                     .uri(validatorUrl)
-                    .header("Authorization", "Bearer " + userGithubToken)
+                    .header("Authorization", "Bearer " + token)
                     .retrieve()
                     .toBodilessEntity();
 
