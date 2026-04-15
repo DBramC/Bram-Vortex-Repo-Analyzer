@@ -394,7 +394,7 @@ public class RepoService {
             zos.finish();
             zos.flush();
         } catch (Exception e) {
-            System.err.println("❌ [ZIP MERGER ERROR] Failed to merge zips: " + e.getMessage());
+            System.err.println("❌ [ZIP MERGER ERROR]  Failed to merge zips: " + e.getMessage());
             return null;
         }
         return baos.toByteArray();
