@@ -134,7 +134,6 @@ public class RepoService {
             allConfigsFound.forEach((path, content) -> configsBuilder.append(String.format("\n--- FILE: %s ---\n%s\n", path, content)));
         }
 
-        // --- PROMPT (UNTOUCHED) ---
         String promptMessage = String.format("""
             You are an expert Cloud Architect for the 'Bram Vortex' platform.
             Generate a detailed "Architectural Blueprint" JSON for the following repository.
@@ -189,6 +188,7 @@ public class RepoService {
                 """,
                 targetCloud, computeType, targetRegion, foundManifestPath,
                 realManifestContent, configsBuilder.toString(), outputConverter.getFormat());
+
         // 6. Database Job Creation
         String jobId = UUID.randomUUID().toString();
         System.out.println("💾 [STAGE 6] Saving Analysis Job to Database. Job ID: " + jobId);
@@ -235,23 +235,19 @@ public class RepoService {
     private void triggerDownstreamServices(String jobId, String userId, String token) {
         System.out.println("📢 [WEBHOOK] Triggering downstream generators for Job: " + jobId);
 
-        // 1. Φέρνουμε το Job από τη βάση για να ελέγξουμε το computeType
         AnalysisJob job = jobRepository.findById(jobId).orElse(null);
         if (job == null) {
             System.err.println("⚠️ [WEBHOOK ERROR] Job not found in DB: " + jobId);
             return;
         }
 
-        String computeType = job.getComputeType(); // Παίρνουμε το compute type από το entity
+        String computeType = job.getComputeType();
 
-        // 2. Terraform Generator - Τρέχει ΠΑΝΤΑ
-        // (Χρειάζεται είτε για το provisioning του VM είτε για το Managed Container infra)
-        // 1. Terraform Generator - ΠΡΟΣΘΕΣΕ ΤΟ TOKEN
         try {
             String terraformUrl = "http://terraform-generator-svc:80/terraform/generate/" + jobId + "?userId=" + userId;
             internalClient.post()
                     .uri(terraformUrl)
-                    .header("Authorization", "Bearer " + token) // <--- ΤΩΡΑ ΤΟ ΣΤΕΛΝΕΙΣ ΚΑΙ ΕΔΩ
+                    .header("Authorization", "Bearer " + token)
                     .retrieve()
                     .toBodilessEntity();
             System.out.println("✅ Terraform Generator triggered.");
@@ -259,35 +255,29 @@ public class RepoService {
             System.err.println("⚠️ [WEBHOOK ERROR] Terraform Trigger Failed: " + e.getMessage());
         }
 
-        // 2. Ansible Generator - ΠΡΟΣΘΕΣΕ ΤΟ TOKEN
         if ("VM".equalsIgnoreCase(computeType) || "Virtual Machine".equalsIgnoreCase(computeType)) {
-
             try {
                 String ansibleUrl = "http://ansible-generator-svc:80/ansible/generate/" + jobId + "?userId=" + userId;
                 internalClient.post().uri(ansibleUrl).header("Authorization", "Bearer " + token).retrieve().toBodilessEntity();
                 System.out.println("✅ Ansible Generator triggered.");
             } catch (Exception e) { System.err.println("⚠️ Ansible Trigger Failed"); }
         } else {
-
             System.out.println("⏭️ [ORCHESTRATOR] Target is " + computeType + ". Skipping Ansible Generator.");
             job.setAnsibleStatus("SKIPPED");
             jobRepository.save(job);
         }
-        // 4. Pipelines (Future)
 
         try {
             String pipelineUrl = "http://pipeline-generator-svc:80/pipeline/generate/" + jobId;
-
             internalClient.post()
                     .uri(pipelineUrl)
-                    .header("Authorization", "Bearer " + token) // JWT Token
+                    .header("Authorization", "Bearer " + token)
                     .retrieve()
                     .toBodilessEntity();
             System.out.println("✅ Pipeline Generator triggered.");
         } catch (Exception e) {
             System.err.println("⚠️ [WEBHOOK ERROR] Pipeline Trigger Failed: " + e.getMessage());
         }
-
     }
 
     public void handleServiceCallback(String analysisJobId, String serviceName, String status) {
@@ -301,9 +291,9 @@ public class RepoService {
             case "TERRAFORM" -> job.setTerraformStatus(status);
             case "ANSIBLE" -> job.setAnsibleStatus(status);
             case "PIPELINE" -> job.setPipelineStatus(status);
+            case "VALIDATOR" -> job.setValidatorStatus(status); // 👈 Ακούμε πλέον και τον Validator
         }
 
-        // Αποθηκεύουμε την ενδιάμεση πρόοδο
         jobRepository.save(job);
 
         // 2. Αν κάποιο service αποτύχει, ακυρώνουμε όλο το workflow
@@ -314,54 +304,70 @@ public class RepoService {
             return;
         }
 
-        // 3. Έλεγχος ολοκλήρωσης όλων των επιμέρους εργασιών (Barrier)
+        // --- ΕΛΕΓΧΟΣ ΦΑΣΗΣ 1: Τελείωσαν οι Generators; ---
         boolean isTerraformDone = "COMPLETED".equals(job.getTerraformStatus());
         boolean isPipelineDone = "COMPLETED".equals(job.getPipelineStatus());
-        // Το Ansible είναι "έτοιμο" αν είναι COMPLETED ή αν παρακάμφθηκε (SKIPPED)
         boolean isAnsibleDone = "COMPLETED".equals(job.getAnsibleStatus()) || "SKIPPED".equals(job.getAnsibleStatus());
 
-        // 4. ΜΟΝΟ αν τελείωσαν όλα, προχωράμε στη συγχώνευση
-        if (isTerraformDone && isPipelineDone && isAnsibleDone) {
-            System.out.println("🎉 [ORCHESTRATOR] ALL GENERATORS COMPLETED! Starting Master ZIP aggregation...");
+        // Αν τελείωσαν οι Generators ΚΑΙ ο Validator δεν έχει ξεκινήσει ακόμα
+        if (isTerraformDone && isPipelineDone && isAnsibleDone && (job.getValidatorStatus() == null || "PENDING".equals(job.getValidatorStatus()))) {
+            System.out.println("🎉 [ORCHESTRATOR] Generators finished! Creating RAW Aggregate ZIP...");
 
             try {
-                // Ανάκτηση των bytes χρησιμοποιώντας τις Native Query μεθόδους του Repository
                 byte[] tfZipBytes = jobRepository.findTerraformZip(analysisJobId);
                 byte[] pipeZipBytes = jobRepository.findPipelineZip(analysisJobId);
-
-                // Αν το Ansible έγινε SKIPPED, δεν ψάχνουμε για ZIP (θα επέστρεφε null ούτως ή άλλως)
                 byte[] ansZipBytes = "SKIPPED".equals(job.getAnsibleStatus()) ? null : jobRepository.findAnsibleZip(analysisJobId);
 
-                // Δημιουργία του ενιαίου Master ZIP
-                byte[] masterZip = createMasterZip(tfZipBytes, ansZipBytes, pipeZipBytes);
+                byte[] rawZip = createMasterZip(tfZipBytes, ansZipBytes, pipeZipBytes);
 
-                if (masterZip != null) {
-                    // Αποθήκευση του τελικού αρχείου και αλλαγή status για το επόμενο στάδιο
-                    job.setMasterZip(masterZip);
-                    job.setStatus("READY_FOR_CHECK");
-                    jobRepository.save(job);
-
-                    System.out.println("📦 [ORCHESTRATOR] Master ZIP created successfully! Size: " + masterZip.length + " bytes.");
-
-                    // Εδώ θα μπει η κλήση για το επόμενο service (Architecture Checker)
-                    // triggerArchitectureChecker(job);
-                } else {
-                    throw new RuntimeException("Master ZIP creation returned null");
+                if (rawZip != null) {
+                    job.setMasterZip(rawZip);
+                    System.out.println("📦 [ORCHESTRATOR] RAW ZIP created successfully! Size: " + rawZip.length + " bytes.");
                 }
 
+                // 👈 ΕΔΩ ΞΕΚΙΝΑΕΙ Ο VALIDATOR!
+                job.setValidatorStatus("TRIGGERED");
+                jobRepository.save(job);
+                triggerArchitectureValidator(job);
+
             } catch (Exception e) {
-                System.err.println("❌ [ORCHESTRATOR ERROR] Aggregation failed: " + e.getMessage());
+                System.err.println("❌ [ORCHESTRATOR ERROR] Failed to create RAW Zip or trigger Validator: " + e.getMessage());
                 job.setStatus("FAILED");
                 jobRepository.save(job);
             }
+            return;
+        }
+
+        // --- ΕΛΕΓΧΟΣ ΦΑΣΗΣ 2: Τελείωσε ο Validator; ---
+        if ("COMPLETED".equals(job.getValidatorStatus())) {
+            System.out.println("🏆 [ORCHESTRATOR] VALIDATOR COMPLETED! The Validated Master ZIP is ready.");
+            job.setStatus("READY_FOR_EXECUTION");
+            jobRepository.save(job);
         } else {
-            // Ενημερωτικό μήνυμα για το ποιο service περιμένουμε ακόμα
-            System.out.println("⏳ [ORCHESTRATOR] Waiting for remaining services... " +
-                    "(TF: " + job.getTerraformStatus() +
-                    ", Pipe: " + job.getPipelineStatus() +
-                    ", Ansible: " + job.getAnsibleStatus() + ")");
+            System.out.println("⏳ [ORCHESTRATOR] Waiting... (TF:" + job.getTerraformStatus() +
+                    " | Pipe:" + job.getPipelineStatus() +
+                    " | Ans:" + job.getAnsibleStatus() +
+                    " | Val:" + job.getValidatorStatus() + ")");
         }
     }
+
+    private void triggerArchitectureValidator(AnalysisJob job) {
+        try {
+            String validatorUrl = "http://architecture-validator-svc:80/validator/validate/" + job.getJobId();
+            String userGithubToken = vaultService.getGithubToken(job.getUserId());
+
+            internalClient.post()
+                    .uri(validatorUrl)
+                    .header("Authorization", "Bearer " + userGithubToken)
+                    .retrieve()
+                    .toBodilessEntity();
+
+            System.out.println("✅ Validator Service triggered successfully.");
+        } catch (Exception e) {
+            System.err.println("⚠️ [WEBHOOK ERROR] Validator Trigger Failed: " + e.getMessage());
+        }
+    }
+
     private String fetchFileContent(String repo, String path, String token) {
         try {
             return restClient.get()
@@ -373,56 +379,40 @@ public class RepoService {
         } catch (Exception e) { return null; }
     }
 
-    /**
-     * Ενώνει 3 ξεχωριστά byte arrays (ZIPs) σε ένα ενιαίο Master ZIP.
-     */
     private byte[] createMasterZip(byte[] terraformZip, byte[] ansibleZip, byte[] pipelineZip) {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (ZipOutputStream zos = new ZipOutputStream(baos)) {
-
-            // 1. Το Terraform μπαίνει στον φάκελο "infrastructure/"
             if (terraformZip != null && terraformZip.length > 0) {
                 appendZipToMaster(zos, terraformZip, "infrastructure/");
             }
-
-            // 2. Το Ansible μπαίνει στον φάκελο "configuration/"
             if (ansibleZip != null && ansibleZip.length > 0) {
                 appendZipToMaster(zos, ansibleZip, "configuration/");
             }
-
-            // 3. Το Pipeline ΔΕΝ παίρνει φάκελο, γιατί έχει ήδη το ".github/workflows/"
             if (pipelineZip != null && pipelineZip.length > 0) {
                 appendZipToMaster(zos, pipelineZip, "");
             }
-
             zos.finish();
             zos.flush();
         } catch (Exception e) {
             System.err.println("❌ [ZIP MERGER ERROR] Failed to merge zips: " + e.getMessage());
-            return null; // Σε περίπτωση λάθους
+            return null;
         }
         return baos.toByteArray();
     }
 
-    /**
-     * Διαβάζει ένα μικρό ZIP και μεταφέρει τα αρχεία του στο μεγάλο ZIP.
-     */
     private void appendZipToMaster(ZipOutputStream zos, byte[] zipData, String folderPrefix) throws Exception {
         try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipData))) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
-                // Φτιάχνουμε το νέο path προσθέτοντας τον φάκελο μπροστά
                 String newEntryName = folderPrefix + entry.getName();
                 zos.putNextEntry(new ZipEntry(newEntryName));
-
-                // Αντιγράφουμε τα δεδομένα του αρχείου (Απαιτεί Java 9+)
                 zis.transferTo(zos);
                 zos.closeEntry();
             }
         }
     }
 
-    public Optional<AnalysisJob>  getAnalysisJob(String jobId) {
+    public Optional<AnalysisJob> getAnalysisJob(String jobId) {
         return jobRepository.findById(jobId);
     }
 }
