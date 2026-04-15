@@ -30,14 +30,6 @@ public class AnalysisJob {
     @Column(name = "compute_type")
     private String computeType;
 
-    public String getTargetRegion() {
-        return targetRegion;
-    }
-
-    public void setTargetRegion(String targetRegion) {
-        this.targetRegion = targetRegion;
-    }
-
     @Column(name = "targetRegion")
     private String targetRegion;
 
@@ -47,6 +39,7 @@ public class AnalysisJob {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "blueprint_json", columnDefinition = "jsonb")
     private JsonNode blueprintJson;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -61,6 +54,9 @@ public class AnalysisJob {
 
     @Column(name = "pipeline_status")
     private String pipelineStatus = "PENDING";
+
+    @Column(name = "validator_status") // 👈 ΝΕΟ ΠΕΔΙΟ
+    private String validatorStatus = "PENDING";
 
     @JdbcTypeCode(SqlTypes.BINARY)
     @Column(name = "master_zip", columnDefinition = "bytea")
@@ -84,6 +80,9 @@ public class AnalysisJob {
 
     public String getTargetCloud() { return targetCloud; }
     public void setTargetCloud(String targetCloud) { this.targetCloud = targetCloud; }
+
+    public String getTargetRegion() { return targetRegion; }
+    public void setTargetRegion(String targetRegion) { this.targetRegion = targetRegion; }
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
@@ -137,6 +136,14 @@ public class AnalysisJob {
 
     public void setPipelineStatus(String pipelineStatus) {
         this.pipelineStatus = pipelineStatus;
+    }
+
+    public String getValidatorStatus() {
+        return validatorStatus;
+    }
+
+    public void setValidatorStatus(String validatorStatus) {
+        this.validatorStatus = validatorStatus;
     }
 
     public byte[] getMasterZip() {
