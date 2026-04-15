@@ -135,57 +135,61 @@ public class RepoService {
         }
 
         String promptMessage = String.format("""
-            You are an expert Cloud Architect for the 'Bram Vortex' platform.
-            Generate a detailed "Architectural Blueprint" JSON for the following repository.
+    You are an expert Cloud Architect for the 'Bram Vortex' platform.
+    Generate a detailed "Architectural Blueprint" JSON for the following repository.
 
-            DO NOT GENERATE CODE. Generate only infrastructure specifications.
+    DO NOT GENERATE CODE. Generate only infrastructure specifications.
 
-            CONTEXT:
-                - Target Cloud: %1$s
-                - Requested Compute Type: %2$s
-                - Target Region: %3$s
-                - Manifest: %4$s
+    CONTEXT:
+        - Target Cloud: %1$s
+        - Requested Compute Type: %2$s
+        - Target Region: %3$s
+        - Manifest: %4$s
 
-            --- MANIFEST CONTENT ---
-            %5$s
+    --- MANIFEST CONTENT ---
+    %5$s
 
-            --- ALL DETECTED CONFIGURATIONS ---
-            %6$s
+    --- ALL DETECTED CONFIGURATIONS ---
+    %6$s
 
-            REQUIRED TASKS:
-                1. Identify exact tech stack (Language, Language Version, Framework, App Type).
-                2. Define 'computeCategory' as exactly '%2$s'.
-                3. Define 'targetCompute' based on '%2$s' (e.g., 'AWS ECS Fargate', 'Azure AKS').
-                4. CRITICAL: Fill 'computeSpecs' with technical hardware requirements based on the tech stack:
-                    - For Containers: include 'cpu_units', 'memory_mb', 'min_max_replicas'.
-                    - For Kubernetes: include 'node_type' (instance size), 'autoscaling_range', 'min_nodes'.
-                    - For VMs: include 'instance_family' (e.g., 't3.micro').
-                5. Extract ALL keys/values from the CONFIGURATIONS section into 'configurationSettings'. 
-                    - If a key exists in both a .properties/.yml and a .env, prioritize the .env value.
-                6. Detect 'targetContainerPort' (e.g., 8080, 3000). Check configs for 'server.port' or 'PORT'.
-                7. Generate 'deploymentMetadata' ONLY if compute type is 'Virtual Machine':
-                    - 'osDistro': Recommend the best Linux distribution (e.g., 'Ubuntu 22.04 LTS').
-                    - 'executionUser': A secure system username for the application.
-                    - 'jvmArgs': Recommended memory/performance settings based on 'computeSpecs'.
-                    - 'healthCheckEndpoint': Identify the application health or actuator path.
-                8. CRITICAL - Generate 'ciCdMetadata' for pipeline construction (APPLIES TO ALL COMPUTE TYPES):
-                    - 'buildTool': The primary build tool (e.g., 'Maven', 'Gradle', 'NPM', 'Poetry').
-                    - 'languageVersion': The exact version needed for the build environment (e.g., '17', '21', '18.x').
-                    - 'buildCommands': Array of exact shell commands to compile/build the app (e.g., ['mvn clean package -DskipTests']).
-                    - 'testCommands': Array of test commands (e.g., ['mvn test']).
-                    - 'artifactPath': The relative path to the compiled binary/artifact (e.g., 'target/*.jar', 'dist/').
-                    - 'hasDockerfile': Boolean indicating if a Dockerfile was explicitly detected in the manifest.
-                9. CRITICAL - ARCHITECTURE DECISION: Analyze the complexity of the repository (e.g., monolithic vs microservices, presence of Dockerfile, stateful vs stateless) and populate:
-                    - 'validComputeTypes': An array containing strictly the appropriate targets from this list: ["Virtual Machine", "Container", "Kubernetes"]. EXCLUDE overkill or inadequate architectures. (e.g., Exclude "Kubernetes" for a simple static site or basic CRUD API. Exclude "Virtual Machine" if it's a massive microservices mesh).
-                    - 'computeReasoning': A short, professional explanation (1-2 sentences) of WHY specific compute types were chosen and why others were deemed overkill or inadequate.
+    REQUIRED TASKS:
+        1. Identify exact tech stack (Language, Language Version, Framework, App Type).
+        2. Define 'computeCategory' as exactly '%2$s'.
+        3. Define 'targetCompute' based on '%2$s' (e.g., 'AWS ECS Fargate', 'Azure AKS').
+        4. CRITICAL: Fill 'computeSpecs' with technical hardware requirements based on the tech stack:
+            - For Containers: include 'cpu_units', 'memory_mb', 'min_max_replicas'.
+            - For Kubernetes: include 'node_type' (instance size), 'autoscaling_range', 'min_nodes'.
+            - For VMs: include 'instance_family' (e.g., 't3.micro').
+        5. Extract ALL keys/values from the CONFIGURATIONS section into 'configurationSettings'. 
+            - If a key exists in both a .properties/.yml and a .env, prioritize the .env value.
+        6. Detect 'targetContainerPort' (e.g., 8080, 3000). Check configs for 'server.port' or 'PORT'.
+        7. Generate 'deploymentMetadata' ONLY if compute type is 'Virtual Machine':
+            - 'osDistro': Recommend the best Linux distribution (e.g., 'Ubuntu 22.04 LTS').
+            - 'executionUser': A secure system username for the application.
+            - 'jvmArgs': Recommended memory/performance settings based on 'computeSpecs'.
+            - 'healthCheckEndpoint': Identify the application health or actuator path.
+        8. CRITICAL - Generate 'ciCdMetadata' for pipeline construction (APPLIES TO ALL COMPUTE TYPES):
+            - 'buildTool': The primary build tool (e.g., 'Maven', 'Gradle', 'NPM', 'Poetry').
+            - 'languageVersion': The exact version needed for the build environment (e.g., '17', '21', '18.x').
+            - 'buildCommands': Array of exact shell commands to compile/build the app (e.g., ['mvn clean package -DskipTests']).
+            - 'testCommands': Array of test commands (e.g., ['mvn test']).
+            - 'artifactPath': The relative path to the compiled binary/artifact (e.g., 'target/*.jar', 'dist/').
+            - 'hasDockerfile': Boolean indicating if a Dockerfile was explicitly detected in the manifest.
+        9. CRITICAL - ARCHITECTURE DECISION: Analyze the complexity of the repository (e.g., monolithic vs microservices, presence of Dockerfile, stateful vs stateless) and populate:
+            - 'validComputeTypes': An array containing strictly the appropriate targets from this list: ["Virtual Machine", "Container", "Kubernetes"]. EXCLUDE overkill or inadequate architectures. (e.g., Exclude "Kubernetes" for a simple static site or basic CRUD API. Exclude "Virtual Machine" if it's a massive microservices mesh).
+            - 'computeReasoning': A short, professional explanation (1-2 sentences) of WHY specific compute types were chosen and why others were deemed overkill or inadequate.
 
-                RULES:
-                    - Respond ONLY with raw JSON. No markdown backticks.
-                    - 'targetCloud' must be exactly "%1$s".
+        RULES (CRITICAL - YOU WILL FAIL IF YOU DO NOT FOLLOW THESE):
+            1. ABSOLUTELY NO CONVERSATIONAL TEXT.
+            2. ABSOLUTELY NO THINKING STEPS OR BULLET POINTS.
+            3. DO NOT output markdown blocks (e.g. ```json).
+            4. YOUR RESPONSE MUST START WITH THE '{' CHARACTER AND END WITH THE '}' CHARACTER.
+            5. RESPOND ONLY WITH THE RAW JSON OBJECT. ANY OTHER TEXT WILL CAUSE A FATAL SYSTEM CRASH.
+            6. 'targetCloud' must be exactly "%1$s".
 
-                SCHEMA:
-                %7$s
-                """,
+        SCHEMA:
+        %7$s
+        """,
                 targetCloud, computeType, targetRegion, foundManifestPath,
                 realManifestContent, configsBuilder.toString(), outputConverter.getFormat());
 
