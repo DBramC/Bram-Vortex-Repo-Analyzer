@@ -434,50 +434,50 @@ public class RepoService {
     // =================================================================================
 
     public FileDiffResponse getAnalysisReviewDetails(String jobId, String currentUserId) {
-        // 1. Φέρνουμε το Job
+        // 1. Φέρνουμε το Draft Job
         AnalysisJob draftJob = jobRepository.findById(jobId)
-                .orElseThrow(() -> new RuntimeException("Job not found"));
+                .orElseThrow(() -> new RuntimeException("Job not found with ID: " + jobId));
 
-        // 2. SECURITY CHECK: Είναι ο τωρινός χρήστης ο ιδιοκτήτης αυτού του Job;
+        // 2. SECURITY CHECK: Έλεγχος ιδιοκτησίας
         if (!draftJob.getUserId().equals(currentUserId)) {
-            throw new RuntimeException("Unauthorized: You don't own this job!");
+            System.err.println("⛔ Security Alert: User " + currentUserId + " tried to access Job " + jobId);
+            throw new RuntimeException("Unauthorized: You do not have permission to view this analysis.");
         }
 
-        // 3. Αν είναι ο ιδιοκτήτης, συνεχίζουμε κανονικά
+        // 3. Έλεγχος αν ο Validator έχει τελειώσει
+        if (!"COMPLETED".equals(draftJob.getValidatorStatus())) {
+            throw new RuntimeException("Validation in progress. Please wait for the Validator to finish.");
+        }
+
+        // 4. Φέρνουμε το Validated Job (εφόσον ξέρουμε ότι είναι COMPLETED)
         ValidatorJob validatedJob = validatorJobRepository.findById(jobId)
-                .orElseThrow(() -> new RuntimeException("Validated files not found yet."));
+                .orElseThrow(() -> new RuntimeException("Validated data missing despite COMPLETED status."));
 
         List<FileDiffResponse.FileDiff> diffFiles = new ArrayList<>();
 
-        // --- 1. TERRAFORM (Ψάχνει για οποιοδήποτε .tf αρχείο στον φάκελο infrastructure) ---
+        // --- 5. TERRAFORM DIFF ---
         String draftTf = extractSmartFileFromZip(draftJob.getMasterZip(), "infrastructure/", ".tf");
         String validTf = extractSmartFileFromZip(validatedJob.getValidatedMasterZip(), "infrastructure/", ".tf");
+        diffFiles.add(new FileDiffResponse.FileDiff("Terraform", "hcl",
+                draftTf != null ? draftTf : "// No draft code",
+                validTf != null ? validTf : "// No validated code"));
 
-        if (draftTf == null) draftTf = "// Terraform code not found. Did the generator fail?";
-        if (validTf == null) validTf = "// Terraform code not found in validated zip.";
-
-        diffFiles.add(new FileDiffResponse.FileDiff("Terraform", "hcl", draftTf, validTf));
-
-        // --- 2. ANSIBLE (Ψάχνει για οποιοδήποτε .yml/.yaml αρχείο στον φάκελο configuration - ΜΟΝΟ ΓΙΑ VM) ---
-        String computeType = draftJob.getComputeType();
-        if ("VM".equalsIgnoreCase(computeType) || "Virtual Machine".equalsIgnoreCase(computeType)) {
+        // --- 6. ANSIBLE DIFF (Μόνο για VM) ---
+        if ("VM".equalsIgnoreCase(draftJob.getComputeType())) {
             String draftAns = extractSmartFileFromZip(draftJob.getMasterZip(), "configuration/", ".yml", ".yaml");
             String validAns = extractSmartFileFromZip(validatedJob.getValidatedMasterZip(), "configuration/", ".yml", ".yaml");
-
-            if (draftAns == null) draftAns = "# Ansible code not found.";
-            if (validAns == null) validAns = "# Ansible code not found in validated zip.";
-
-            diffFiles.add(new FileDiffResponse.FileDiff("Ansible", "yaml", draftAns, validAns));
+            diffFiles.add(new FileDiffResponse.FileDiff("Ansible", "yaml",
+                    draftAns != null ? draftAns : "# No draft config",
+                    validAns != null ? validAns : "# No validated config"));
         }
 
-        // --- 3. CI/CD PIPELINE (Ψάχνει για οποιοδήποτε .yml/.yaml αρχείο στο root) ---
+        // --- 7. CI/CD PIPELINE DIFF ---
         String draftPipe = extractSmartFileFromZip(draftJob.getMasterZip(), "", ".yml", ".yaml");
         String validPipe = extractSmartFileFromZip(validatedJob.getValidatedMasterZip(), "", ".yml", ".yaml");
-
         if (draftPipe != null || validPipe != null) {
-            if (draftPipe == null) draftPipe = "# CI/CD code not found.";
-            if (validPipe == null) validPipe = "# CI/CD code not found in validated zip.";
-            diffFiles.add(new FileDiffResponse.FileDiff("CI/CD Pipeline", "yaml", draftPipe, validPipe));
+            diffFiles.add(new FileDiffResponse.FileDiff("CI/CD Pipeline", "yaml",
+                    draftPipe != null ? draftPipe : "# No draft pipeline",
+                    validPipe != null ? validPipe : "# No validated pipeline"));
         }
 
         return new FileDiffResponse(jobId, diffFiles);
