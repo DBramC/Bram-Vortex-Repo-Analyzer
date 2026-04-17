@@ -299,47 +299,51 @@ public class RepoService {
     }
 
     public void handleServiceCallback(String analysisJobId, String serviceName, String status, String token) {
+        System.out.println("📥 [CALLBACK] Service: " + serviceName + " | Status: " + status + " for Job: " + analysisJobId);
+
+        // 1. Ατομική ενημέρωση στη βάση (Atomic Update)
+        switch (serviceName.toUpperCase()) {
+            case "TERRAFORM" -> jobRepository.updateTerraformStatus(analysisJobId, status);
+            case "ANSIBLE" -> jobRepository.updateAnsibleStatus(analysisJobId, status);
+            case "PIPELINE" -> jobRepository.updatePipelineStatus(analysisJobId, status);
+            case "VALIDATOR" -> jobRepository.updateValidatorStatus(analysisJobId, status);
+        }
+
+        // 2. Φέρνουμε το "φρέσκο" αντικείμενο από τη βάση ΜΕΤΑ το update
         AnalysisJob job = jobRepository.findById(analysisJobId)
                 .orElseThrow(() -> new RuntimeException("Job not found"));
 
-        System.out.println("📥 [CALLBACK] Service: " + serviceName + " | Status: " + status + " for Job: " + analysisJobId);
-
-        // 1. Ενημέρωση του συγκεκριμένου status στη βάση
-        switch (serviceName.toUpperCase()) {
-            case "TERRAFORM" -> job.setTerraformStatus(status);
-            case "ANSIBLE" -> job.setAnsibleStatus(status);
-            case "PIPELINE" -> job.setPipelineStatus(status);
-            case "VALIDATOR" -> job.setValidatorStatus(status);
-        }
-
-        jobRepository.save(job);
-
-        // 2. Αν κάποιο service αποτύχει, ακυρώνουμε όλο το workflow
+        // 3. Αν κάποιο service αποτύχει, σταματάμε
         if ("FAILED".equals(status)) {
-            System.err.println("❌ [ORCHESTRATOR] " + serviceName + " failed! Halting workflow.");
             job.setStatus("FAILED");
             jobRepository.save(job);
             return;
         }
 
-        // --- ΕΛΕΓΧΟΣ ΦΑΣΗΣ 1: Τελείωσαν οι Generators; ---
+        // --- ΕΛΕΓΧΟΣ: Τελείωσαν οι Generators; ---
         boolean isTerraformDone = "COMPLETED".equals(job.getTerraformStatus());
         boolean isPipelineDone = "COMPLETED".equals(job.getPipelineStatus());
+        // Το Ansible θεωρείται done αν είναι COMPLETED ή αν έγινε SKIPPED (για Containers)
         boolean isAnsibleDone = "COMPLETED".equals(job.getAnsibleStatus()) || "SKIPPED".equals(job.getAnsibleStatus());
 
-        if (isTerraformDone && isPipelineDone && isAnsibleDone && (job.getValidatorStatus() == null || "PENDING".equals(job.getValidatorStatus()))) {
-            System.out.println("🎉 [ORCHESTRATOR] Generators finished! Creating RAW Aggregate ZIP...");
+        System.out.println("⏳ [ORCHESTRATOR] Status Check for " + analysisJobId + ": TF:" + job.getTerraformStatus() +
+                " | Pipe:" + job.getPipelineStatus() + " | Ans:" + job.getAnsibleStatus());
+
+        // Αν όλα είναι έτοιμα και ο Validator δεν έχει ξεκινήσει
+        if (isTerraformDone && isPipelineDone && isAnsibleDone &&
+                (job.getValidatorStatus() == null || "PENDING".equals(job.getValidatorStatus()))) {
+
+            System.out.println("🎉 [ORCHESTRATOR] All Generators finished! Aggregating...");
 
             try {
-                byte[] tfZipBytes = jobRepository.findTerraformZip(analysisJobId);
-                byte[] pipeZipBytes = jobRepository.findPipelineZip(analysisJobId);
-                byte[] ansZipBytes = "SKIPPED".equals(job.getAnsibleStatus()) ? null : jobRepository.findAnsibleZip(analysisJobId);
+                // Εδώ καλείς τη createMasterZip όπως πριν...
+                byte[] tfZip = jobRepository.findTerraformZip(analysisJobId);
+                byte[] pipeZip = jobRepository.findPipelineZip(analysisJobId);
+                byte[] ansZip = "SKIPPED".equals(job.getAnsibleStatus()) ? null : jobRepository.findAnsibleZip(analysisJobId);
 
-                byte[] rawZip = createMasterZip(tfZipBytes, ansZipBytes, pipeZipBytes);
-
+                byte[] rawZip = createMasterZip(tfZip, ansZip, pipeZip);
                 if (rawZip != null) {
                     job.setMasterZip(rawZip);
-                    System.out.println("📦 [ORCHESTRATOR] RAW ZIP created successfully! Size: " + rawZip.length + " bytes.");
                 }
 
                 job.setValidatorStatus("TRIGGERED");
@@ -347,23 +351,17 @@ public class RepoService {
                 triggerArchitectureValidator(job, token);
 
             } catch (Exception e) {
-                System.err.println("❌ [ORCHESTRATOR ERROR] Failed to create RAW Zip or trigger Validator: " + e.getMessage());
+                System.err.println("❌ Error in aggregation: " + e.getMessage());
                 job.setStatus("FAILED");
                 jobRepository.save(job);
             }
-            return;
         }
 
-        // --- ΕΛΕΓΧΟΣ ΦΑΣΗΣ 2: Τελείωσε ο Validator; ---
+        // --- ΕΛΕΓΧΟΣ: Τελείωσε ο Validator; ---
         if ("COMPLETED".equals(job.getValidatorStatus())) {
-            System.out.println("🏆 [ORCHESTRATOR] VALIDATOR COMPLETED! The Validated Master ZIP is ready.");
+            System.out.println("🏆 [ORCHESTRATOR] VALIDATOR COMPLETED!");
             job.setStatus("READY_FOR_EXECUTION");
             jobRepository.save(job);
-        } else {
-            System.out.println("⏳ [ORCHESTRATOR] Waiting... (TF:" + job.getTerraformStatus() +
-                    " | Pipe:" + job.getPipelineStatus() +
-                    " | Ans:" + job.getAnsibleStatus() +
-                    " | Val:" + job.getValidatorStatus() + ")");
         }
     }
 
