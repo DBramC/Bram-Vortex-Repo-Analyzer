@@ -433,12 +433,19 @@ public class RepoService {
     //                 DIFF REVIEW METHODS (PLAN VS APPLY)
     // =================================================================================
 
-    public FileDiffResponse getAnalysisReviewDetails(String jobId) {
+    public FileDiffResponse getAnalysisReviewDetails(String jobId, String currentUserId) {
+        // 1. Φέρνουμε το Job
         AnalysisJob draftJob = jobRepository.findById(jobId)
-                .orElseThrow(() -> new RuntimeException("Draft Job not found for ID: " + jobId));
+                .orElseThrow(() -> new RuntimeException("Job not found"));
 
+        // 2. SECURITY CHECK: Είναι ο τωρινός χρήστης ο ιδιοκτήτης αυτού του Job;
+        if (!draftJob.getUserId().equals(currentUserId)) {
+            throw new RuntimeException("Unauthorized: You don't own this job!");
+        }
+
+        // 3. Αν είναι ο ιδιοκτήτης, συνεχίζουμε κανονικά
         ValidatorJob validatedJob = validatorJobRepository.findById(jobId)
-                .orElseThrow(() -> new RuntimeException("Validator Job not found for ID: " + jobId));
+                .orElseThrow(() -> new RuntimeException("Validated files not found yet."));
 
         List<FileDiffResponse.FileDiff> diffFiles = new ArrayList<>();
 

@@ -148,8 +148,12 @@ public class Repositories {
 
     @GetMapping("/analysis/{jobId}/review")
     public ResponseEntity<FileDiffResponse> getAnalysisReview(@PathVariable String jobId, Authentication auth) {
-        // Τώρα το Spring Security θα επιτρέψει την κλήση γιατί βλέπει το Token
-        FileDiffResponse response = repoService.getAnalysisReviewDetails(jobId);
+        // 1. Παίρνουμε το ID του χρήστη που κάνει την κλήση από το JWT
+        String currentUserId = auth.getName();
+
+        // 2. Το στέλνουμε στο service για έλεγχο ιδιοκτησίας
+        FileDiffResponse response = repoService.getAnalysisReviewDetails(jobId, currentUserId);
+
         return ResponseEntity.ok(response);
     }
 }
