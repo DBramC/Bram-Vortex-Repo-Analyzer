@@ -12,8 +12,11 @@ import org.hibernate.type.SqlTypes;
 public class ValidatorJob {
 
     @Id
-    @Column(name = "job_id", nullable = false, updatable = false)
+    @Column(name = "id", nullable = false, updatable = false)
     private String jobId;
+
+    @Column(name = "analysis_job_id", nullable = false)
+    private String analysisJobId;
 
     // Εδώ βάζουμε τη στήλη για το ZIP που συζητήσαμε
     @JdbcTypeCode(SqlTypes.BINARY)
@@ -39,5 +42,13 @@ public class ValidatorJob {
 
     public void setValidatedMasterZip(byte[] validatedMasterZip) {
         this.validatedMasterZip = validatedMasterZip;
+    }
+
+    public String getAnalysisJobId() {
+        return analysisJobId;
+    }
+
+    public void setAnalysisJobId(String analysisJobId) {
+        this.analysisJobId = analysisJobId;
     }
 }
