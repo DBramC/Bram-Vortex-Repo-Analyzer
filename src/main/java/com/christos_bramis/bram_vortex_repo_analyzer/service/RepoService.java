@@ -17,7 +17,6 @@ import org.springframework.web.client.RestClient;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
@@ -37,13 +36,13 @@ public class RepoService {
 
     public RepoService(RestClient.Builder builder, VaultService vaultService, ChatModel chatModel,
                        AnalysisJobRepository jobRepository, ObjectMapper objectMapper,
-                       ValidatorJobRepository validatorJobRepository) { // 👈 ΝΕΟ: Έγινε Inject
+                       ValidatorJobRepository validatorJobRepository) {
         this.restClient = builder.baseUrl("https://api.github.com").build();
         this.vaultService = vaultService;
         this.chatModel = chatModel;
         this.jobRepository = jobRepository;
         this.objectMapper = objectMapper;
-        this.validatorJobRepository = validatorJobRepository; // 👈 ΝΕΟ: Αρχικοποίηση
+        this.validatorJobRepository = validatorJobRepository;
     }
 
     public List<RepoResponse> getUserRepositories(String userId) {
@@ -222,7 +221,7 @@ public class RepoService {
                 System.out.println("📡 [ASYNC] AI call started for Job ID: " + jobId);
                 String aiResponse = chatModel.call(promptMessage);
 
-                // Προαιρετικός καθαρισμός JSON (όπως συζητήσαμε για ασφάλεια)
+                // Προαιρετικός καθαρισμός JSON
                 int startIndex = aiResponse.indexOf('{');
                 int endIndex = aiResponse.lastIndexOf('}');
                 if (startIndex != -1 && endIndex != -1 && endIndex >= startIndex) {
@@ -328,7 +327,6 @@ public class RepoService {
         boolean isPipelineDone = "COMPLETED".equals(job.getPipelineStatus());
         boolean isAnsibleDone = "COMPLETED".equals(job.getAnsibleStatus()) || "SKIPPED".equals(job.getAnsibleStatus());
 
-        // Αν τελείωσαν οι Generators ΚΑΙ ο Validator δεν έχει ξεκινήσει ακόμα
         if (isTerraformDone && isPipelineDone && isAnsibleDone && (job.getValidatorStatus() == null || "PENDING".equals(job.getValidatorStatus()))) {
             System.out.println("🎉 [ORCHESTRATOR] Generators finished! Creating RAW Aggregate ZIP...");
 
@@ -438,61 +436,74 @@ public class RepoService {
     // =================================================================================
 
     public FileDiffResponse getAnalysisReviewDetails(String jobId) {
-        // 1. Παίρνουμε το Draft Job (εδώ έχουμε και το Compute Type!)
         AnalysisJob draftJob = jobRepository.findById(jobId)
                 .orElseThrow(() -> new RuntimeException("Draft Job not found for ID: " + jobId));
 
-        // 2. Παίρνουμε το Validated Job
         ValidatorJob validatedJob = validatorJobRepository.findById(jobId)
                 .orElseThrow(() -> new RuntimeException("Validator Job not found for ID: " + jobId));
 
-        // Χρησιμοποιούμε μια δυναμική λίστα για να προσθέτουμε μόνο όσα αρχεία βγάζουν νόημα
         List<FileDiffResponse.FileDiff> diffFiles = new ArrayList<>();
 
-        // 3. Εξάγουμε το Terraform ("main.tf") -- Αυτό υπάρχει ΠΑΝΤΑ (AWS, K8s, VM)
-        String draftTf = extractFileFromZip(draftJob.getMasterZip(), "main.tf");
-        String validTf = extractFileFromZip(validatedJob.getValidatedMasterZip(), "main.tf");
+        // --- 1. TERRAFORM (Ψάχνει για οποιοδήποτε .tf αρχείο στον φάκελο infrastructure) ---
+        String draftTf = extractSmartFileFromZip(draftJob.getMasterZip(), "infrastructure/", ".tf");
+        String validTf = extractSmartFileFromZip(validatedJob.getValidatedMasterZip(), "infrastructure/", ".tf");
 
-        if (draftTf == null) draftTf = "// main.tf not found in draft zip. Waiting for generator...";
-        if (validTf == null) validTf = "// main.tf not found in validated zip. Waiting for validator...";
+        if (draftTf == null) draftTf = "// Terraform code not found. Did the generator fail?";
+        if (validTf == null) validTf = "// Terraform code not found in validated zip.";
 
-        diffFiles.add(new FileDiffResponse.FileDiff("main.tf", "hcl", draftTf, validTf));
+        diffFiles.add(new FileDiffResponse.FileDiff("Terraform", "hcl", draftTf, validTf));
 
-        // 4. Ελέγχουμε το Compute Type πριν ψάξουμε για Ansible
+        // --- 2. ANSIBLE (Ψάχνει για οποιοδήποτε .yml/.yaml αρχείο στον φάκελο configuration - ΜΟΝΟ ΓΙΑ VM) ---
         String computeType = draftJob.getComputeType();
         if ("VM".equalsIgnoreCase(computeType) || "Virtual Machine".equalsIgnoreCase(computeType)) {
+            String draftAns = extractSmartFileFromZip(draftJob.getMasterZip(), "configuration/", ".yml", ".yaml");
+            String validAns = extractSmartFileFromZip(validatedJob.getValidatedMasterZip(), "configuration/", ".yml", ".yaml");
 
-            // Εξάγουμε το Ansible ("playbook.yml") ΜΟΝΟ αν είναι VM
-            String draftAns = extractFileFromZip(draftJob.getMasterZip(), "playbook.yml");
-            String validAns = extractFileFromZip(validatedJob.getValidatedMasterZip(), "playbook.yml");
+            if (draftAns == null) draftAns = "# Ansible code not found.";
+            if (validAns == null) validAns = "# Ansible code not found in validated zip.";
 
-            if (draftAns == null) draftAns = "# playbook.yml not found in draft zip";
-            if (validAns == null) validAns = "# playbook.yml not found in validated zip";
-
-            diffFiles.add(new FileDiffResponse.FileDiff("playbook.yml", "yaml", draftAns, validAns));
+            diffFiles.add(new FileDiffResponse.FileDiff("Ansible", "yaml", draftAns, validAns));
         }
 
-        // 5. Φτιάχνουμε το Response με τη δυναμική λίστα
+        // --- 3. CI/CD PIPELINE (Ψάχνει για οποιοδήποτε .yml/.yaml αρχείο στο root) ---
+        String draftPipe = extractSmartFileFromZip(draftJob.getMasterZip(), "", ".yml", ".yaml");
+        String validPipe = extractSmartFileFromZip(validatedJob.getValidatedMasterZip(), "", ".yml", ".yaml");
+
+        if (draftPipe != null || validPipe != null) {
+            if (draftPipe == null) draftPipe = "# CI/CD code not found.";
+            if (validPipe == null) validPipe = "# CI/CD code not found in validated zip.";
+            diffFiles.add(new FileDiffResponse.FileDiff("CI/CD Pipeline", "yaml", draftPipe, validPipe));
+        }
+
         return new FileDiffResponse(jobId, diffFiles);
     }
 
-    private String extractFileFromZip(byte[] zipBytes, String targetFileName) {
-        if (zipBytes == null || zipBytes.length == 0) {
-            return null;
-        }
+    /**
+     * Εξάγει δυναμικά το πρώτο αρχείο που ταιριάζει σε συγκεκριμένο φάκελο και κατάληξη.
+     */
+    private String extractSmartFileFromZip(byte[] zipBytes, String folderPrefix, String... allowedExtensions) {
+        if (zipBytes == null || zipBytes.length == 0) return null;
 
         try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
-                if (entry.getName().endsWith(targetFileName)) {
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    zis.transferTo(baos);
-                    return baos.toString(StandardCharsets.UTF_8);
+                String name = entry.getName();
+
+                // Αν το αρχείο βρίσκεται μέσα στον σωστό φάκελο
+                if (name.startsWith(folderPrefix)) {
+                    // Ελέγχουμε αν έχει μία από τις επιτρεπτές καταλήξεις
+                    for (String ext : allowedExtensions) {
+                        if (name.endsWith(ext)) {
+                            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                            zis.transferTo(baos);
+                            return baos.toString(java.nio.charset.StandardCharsets.UTF_8);
+                        }
+                    }
                 }
                 zis.closeEntry();
             }
         } catch (Exception e) {
-            System.err.println("⚠️ [ZIP ERROR] Could not extract " + targetFileName + ": " + e.getMessage());
+            System.err.println("⚠️ [ZIP ERROR] Could not extract from " + folderPrefix + ": " + e.getMessage());
         }
         return null;
     }
