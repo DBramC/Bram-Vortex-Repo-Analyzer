@@ -156,4 +156,13 @@ public class Repositories {
 
         return ResponseEntity.ok(response);
     }
+
+    @GetMapping("/download-comparison/{jobId}")
+    public ResponseEntity<byte[]> downloadComparison(@PathVariable String jobId, Authentication auth) {
+        byte[] zip = repoService.createComparisonZip(jobId);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"comparison-" + jobId + ".zip\"")
+                .contentType(MediaType.parseMediaType("application/zip"))
+                .body(zip);
+    }
 }

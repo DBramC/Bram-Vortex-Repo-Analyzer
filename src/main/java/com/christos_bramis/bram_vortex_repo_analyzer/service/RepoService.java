@@ -512,4 +512,36 @@ public class RepoService {
         }
         return null;
     }
+
+    public byte[] createComparisonZip(String jobId) {
+        AnalysisJob draftJob = jobRepository.findById(jobId).orElseThrow();
+        ValidatorJob validJob = validatorJobRepository.findByAnalysisJobId(jobId).orElseThrow();
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (ZipOutputStream zos = new ZipOutputStream(baos)) {
+            // 1. Βάζουμε τα αρχεία του AI Draft στον φάκελο ai-draft/
+            if (draftJob.getMasterZip() != null) {
+                appendZipWithPrefix(zos, draftJob.getMasterZip(), "ai-draft/");
+            }
+            // 2. Βάζουμε τα αρχεία του Validator στον φάκελο validated/
+            if (validJob.getValidatedMasterZip() != null) {
+                appendZipWithPrefix(zos, validJob.getValidatedMasterZip(), "validated/");
+            }
+            zos.finish();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create comparison zip", e);
+        }
+        return baos.toByteArray();
+    }
+
+    private void appendZipWithPrefix(ZipOutputStream zos, byte[] zipData, String prefix) throws Exception {
+        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipData))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                zos.putNextEntry(new ZipEntry(prefix + entry.getName()));
+                zis.transferTo(zos);
+                zos.closeEntry();
+            }
+        }
+    }
 }
