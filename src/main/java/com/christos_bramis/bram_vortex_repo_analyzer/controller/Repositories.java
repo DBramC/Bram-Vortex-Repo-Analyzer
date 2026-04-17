@@ -1,6 +1,7 @@
 package com.christos_bramis.bram_vortex_repo_analyzer.controller;
 
 import com.christos_bramis.bram_vortex_repo_analyzer.dto.AnalysisRequest;
+import com.christos_bramis.bram_vortex_repo_analyzer.dto.FileDiffResponse;
 import com.christos_bramis.bram_vortex_repo_analyzer.dto.RepoResponse;
 import com.christos_bramis.bram_vortex_repo_analyzer.entity.AnalysisJob;
 import com.christos_bramis.bram_vortex_repo_analyzer.service.RepoService;
@@ -143,5 +144,11 @@ public class Repositories {
                     System.err.println("❌ [DOWNLOAD] Job ID not found: " + jobId);
                     return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
                 });
+    }
+
+    @GetMapping("/analysis/{jobId}/review")
+    public ResponseEntity<FileDiffResponse> getAnalysisReview(@PathVariable String jobId) {
+        FileDiffResponse response = repoService.getAnalysisReviewDetails(jobId);
+        return ResponseEntity.ok(response);
     }
 }

@@ -1,24 +1,28 @@
 package com.christos_bramis.bram_vortex_repo_analyzer.service;
 
 import com.christos_bramis.bram_vortex_repo_analyzer.dto.AnalysisRequest;
+import com.christos_bramis.bram_vortex_repo_analyzer.dto.FileDiffResponse;
 import com.christos_bramis.bram_vortex_repo_analyzer.dto.InfrastructureAnalysis;
 import com.christos_bramis.bram_vortex_repo_analyzer.dto.RepoResponse;
 import com.christos_bramis.bram_vortex_repo_analyzer.entity.AnalysisJob;
+import com.christos_bramis.bram_vortex_repo_analyzer.entity.ValidatorJob;
 import com.christos_bramis.bram_vortex_repo_analyzer.repository.AnalysisJobRepository;
+import com.christos_bramis.bram_vortex_repo_analyzer.repository.ValidatorJobRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
-
-import java.util.*;
-import java.util.stream.Collectors;
 
 @Service
 public class RepoService {
@@ -29,14 +33,17 @@ public class RepoService {
     private final AnalysisJobRepository jobRepository;
     private final ObjectMapper objectMapper;
     private final RestClient internalClient = RestClient.create();
+    private final ValidatorJobRepository validatorJobRepository;
 
     public RepoService(RestClient.Builder builder, VaultService vaultService, ChatModel chatModel,
-                       AnalysisJobRepository jobRepository, ObjectMapper objectMapper) {
+                       AnalysisJobRepository jobRepository, ObjectMapper objectMapper,
+                       ValidatorJobRepository validatorJobRepository) { // 👈 ΝΕΟ: Έγινε Inject
         this.restClient = builder.baseUrl("https://api.github.com").build();
         this.vaultService = vaultService;
         this.chatModel = chatModel;
         this.jobRepository = jobRepository;
         this.objectMapper = objectMapper;
+        this.validatorJobRepository = validatorJobRepository; // 👈 ΝΕΟ: Αρχικοποίηση
     }
 
     public List<RepoResponse> getUserRepositories(String userId) {
@@ -214,6 +221,14 @@ public class RepoService {
             try {
                 System.out.println("📡 [ASYNC] AI call started for Job ID: " + jobId);
                 String aiResponse = chatModel.call(promptMessage);
+
+                // Προαιρετικός καθαρισμός JSON (όπως συζητήσαμε για ασφάλεια)
+                int startIndex = aiResponse.indexOf('{');
+                int endIndex = aiResponse.lastIndexOf('}');
+                if (startIndex != -1 && endIndex != -1 && endIndex >= startIndex) {
+                    aiResponse = aiResponse.substring(startIndex, endIndex + 1);
+                }
+
                 System.out.println("📥 [ASYNC] AI Response received. Converting to Blueprint...");
 
                 InfrastructureAnalysis result = outputConverter.convert(aiResponse);
@@ -295,7 +310,7 @@ public class RepoService {
             case "TERRAFORM" -> job.setTerraformStatus(status);
             case "ANSIBLE" -> job.setAnsibleStatus(status);
             case "PIPELINE" -> job.setPipelineStatus(status);
-            case "VALIDATOR" -> job.setValidatorStatus(status); // 👈 Ακούμε πλέον και τον Validator
+            case "VALIDATOR" -> job.setValidatorStatus(status);
         }
 
         jobRepository.save(job);
@@ -329,7 +344,6 @@ public class RepoService {
                     System.out.println("📦 [ORCHESTRATOR] RAW ZIP created successfully! Size: " + rawZip.length + " bytes.");
                 }
 
-                // 👈 ΕΔΩ ΞΕΚΙΝΑΕΙ Ο VALIDATOR!
                 job.setValidatorStatus("TRIGGERED");
                 jobRepository.save(job);
                 triggerArchitectureValidator(job, token);
@@ -417,5 +431,69 @@ public class RepoService {
 
     public Optional<AnalysisJob> getAnalysisJob(String jobId) {
         return jobRepository.findById(jobId);
+    }
+
+    // =================================================================================
+    //                 DIFF REVIEW METHODS (PLAN VS APPLY)
+    // =================================================================================
+
+    public FileDiffResponse getAnalysisReviewDetails(String jobId) {
+        // 1. Παίρνουμε το Draft Job (εδώ έχουμε και το Compute Type!)
+        AnalysisJob draftJob = jobRepository.findById(jobId)
+                .orElseThrow(() -> new RuntimeException("Draft Job not found for ID: " + jobId));
+
+        // 2. Παίρνουμε το Validated Job
+        ValidatorJob validatedJob = validatorJobRepository.findById(jobId)
+                .orElseThrow(() -> new RuntimeException("Validator Job not found for ID: " + jobId));
+
+        // Χρησιμοποιούμε μια δυναμική λίστα για να προσθέτουμε μόνο όσα αρχεία βγάζουν νόημα
+        List<FileDiffResponse.FileDiff> diffFiles = new ArrayList<>();
+
+        // 3. Εξάγουμε το Terraform ("main.tf") -- Αυτό υπάρχει ΠΑΝΤΑ (AWS, K8s, VM)
+        String draftTf = extractFileFromZip(draftJob.getMasterZip(), "main.tf");
+        String validTf = extractFileFromZip(validatedJob.getValidatedMasterZip(), "main.tf");
+
+        if (draftTf == null) draftTf = "// main.tf not found in draft zip. Waiting for generator...";
+        if (validTf == null) validTf = "// main.tf not found in validated zip. Waiting for validator...";
+
+        diffFiles.add(new FileDiffResponse.FileDiff("main.tf", "hcl", draftTf, validTf));
+
+        // 4. Ελέγχουμε το Compute Type πριν ψάξουμε για Ansible
+        String computeType = draftJob.getComputeType();
+        if ("VM".equalsIgnoreCase(computeType) || "Virtual Machine".equalsIgnoreCase(computeType)) {
+
+            // Εξάγουμε το Ansible ("playbook.yml") ΜΟΝΟ αν είναι VM
+            String draftAns = extractFileFromZip(draftJob.getMasterZip(), "playbook.yml");
+            String validAns = extractFileFromZip(validatedJob.getValidatedMasterZip(), "playbook.yml");
+
+            if (draftAns == null) draftAns = "# playbook.yml not found in draft zip";
+            if (validAns == null) validAns = "# playbook.yml not found in validated zip";
+
+            diffFiles.add(new FileDiffResponse.FileDiff("playbook.yml", "yaml", draftAns, validAns));
+        }
+
+        // 5. Φτιάχνουμε το Response με τη δυναμική λίστα
+        return new FileDiffResponse(jobId, diffFiles);
+    }
+
+    private String extractFileFromZip(byte[] zipBytes, String targetFileName) {
+        if (zipBytes == null || zipBytes.length == 0) {
+            return null;
+        }
+
+        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (entry.getName().endsWith(targetFileName)) {
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    zis.transferTo(baos);
+                    return baos.toString(StandardCharsets.UTF_8);
+                }
+                zis.closeEntry();
+            }
+        } catch (Exception e) {
+            System.err.println("⚠️ [ZIP ERROR] Could not extract " + targetFileName + ": " + e.getMessage());
+        }
+        return null;
     }
 }
