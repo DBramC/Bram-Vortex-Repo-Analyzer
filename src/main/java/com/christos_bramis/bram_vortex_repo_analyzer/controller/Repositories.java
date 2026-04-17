@@ -147,7 +147,8 @@ public class Repositories {
     }
 
     @GetMapping("/analysis/{jobId}/review")
-    public ResponseEntity<FileDiffResponse> getAnalysisReview(@PathVariable String jobId) {
+    public ResponseEntity<FileDiffResponse> getAnalysisReview(@PathVariable String jobId, Authentication auth) {
+        // Τώρα το Spring Security θα επιτρέψει την κλήση γιατί βλέπει το Token
         FileDiffResponse response = repoService.getAnalysisReviewDetails(jobId);
         return ResponseEntity.ok(response);
     }
