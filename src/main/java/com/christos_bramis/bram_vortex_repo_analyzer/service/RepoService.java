@@ -450,8 +450,8 @@ public class RepoService {
         }
 
         // 4. Φέρνουμε το Validated Job (εφόσον ξέρουμε ότι είναι COMPLETED)
-        ValidatorJob validatedJob = validatorJobRepository.findById(jobId)
-                .orElseThrow(() -> new RuntimeException("Validated data missing despite COMPLETED status."));
+        ValidatorJob validatedJob = validatorJobRepository.findByAnalysisJobId(jobId)
+                .orElseThrow(() -> new RuntimeException("Validated data not found for Job ID: " + jobId));
 
         List<FileDiffResponse.FileDiff> diffFiles = new ArrayList<>();
 
