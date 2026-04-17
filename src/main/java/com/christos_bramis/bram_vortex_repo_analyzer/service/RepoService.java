@@ -434,53 +434,65 @@ public class RepoService {
     // =================================================================================
 
     public FileDiffResponse getAnalysisReviewDetails(String jobId, String currentUserId) {
-        // 1. Φέρνουμε το Draft Job
         AnalysisJob draftJob = jobRepository.findById(jobId)
-                .orElseThrow(() -> new RuntimeException("Job not found with ID: " + jobId));
+                .orElseThrow(() -> new RuntimeException("Draft Job not found"));
 
-        // 2. SECURITY CHECK: Έλεγχος ιδιοκτησίας
         if (!draftJob.getUserId().equals(currentUserId)) {
-            System.err.println("⛔ Security Alert: User " + currentUserId + " tried to access Job " + jobId);
-            throw new RuntimeException("Unauthorized: You do not have permission to view this analysis.");
+            throw new RuntimeException("Unauthorized access to Job ID: " + jobId);
         }
 
-        // 3. Έλεγχος αν ο Validator έχει τελειώσει
-        if (!"COMPLETED".equals(draftJob.getValidatorStatus())) {
-            throw new RuntimeException("Validation in progress. Please wait for the Validator to finish.");
-        }
-
-        // 4. Φέρνουμε το Validated Job (εφόσον ξέρουμε ότι είναι COMPLETED)
         ValidatorJob validatedJob = validatorJobRepository.findByAnalysisJobId(jobId)
-                .orElseThrow(() -> new RuntimeException("Validated data not found for Job ID: " + jobId));
+                .orElseThrow(() -> new RuntimeException("Validated data not found. Ensure Validator is COMPLETED."));
 
         List<FileDiffResponse.FileDiff> diffFiles = new ArrayList<>();
 
-        // --- 5. TERRAFORM DIFF ---
-        String draftTf = extractSmartFileFromZip(draftJob.getMasterZip(), "infrastructure/", ".tf");
-        String validTf = extractSmartFileFromZip(validatedJob.getValidatedMasterZip(), "infrastructure/", ".tf");
-        diffFiles.add(new FileDiffResponse.FileDiff("Terraform", "hcl",
-                draftTf != null ? draftTf : "// No draft code",
-                validTf != null ? validTf : "// No validated code"));
+        // 1. Μετατρέπουμε τα ZIPs σε Maps (Path -> Content) για εύκολο matching
+        Map<String, String> draftFiles = extractAllFilesFromZip(draftJob.getMasterZip());
+        Map<String, String> validatedFiles = extractAllFilesFromZip(validatedJob.getValidatedMasterZip());
 
-        // --- 6. ANSIBLE DIFF (Μόνο για VM) ---
-        if ("VM".equalsIgnoreCase(draftJob.getComputeType())) {
-            String draftAns = extractSmartFileFromZip(draftJob.getMasterZip(), "configuration/", ".yml", ".yaml");
-            String validAns = extractSmartFileFromZip(validatedJob.getValidatedMasterZip(), "configuration/", ".yml", ".yaml");
-            diffFiles.add(new FileDiffResponse.FileDiff("Ansible", "yaml",
-                    draftAns != null ? draftAns : "# No draft config",
-                    validAns != null ? validAns : "# No validated config"));
-        }
+        // 2. Η πηγή της αλήθειας είναι το Validated ZIP
+        // Παίρνουμε όλα τα μοναδικά paths από το Validated ZIP
+        for (String filePath : validatedFiles.keySet()) {
+            String validContent = validatedFiles.get(filePath);
+            String draftContent = draftFiles.getOrDefault(filePath, ""); // Αν δεν υπάρχει στο draft, δείξε κενό
 
-        // --- 7. CI/CD PIPELINE DIFF ---
-        String draftPipe = extractSmartFileFromZip(draftJob.getMasterZip(), "", ".yml", ".yaml");
-        String validPipe = extractSmartFileFromZip(validatedJob.getValidatedMasterZip(), "", ".yml", ".yaml");
-        if (draftPipe != null || validPipe != null) {
-            diffFiles.add(new FileDiffResponse.FileDiff("CI/CD Pipeline", "yaml",
-                    draftPipe != null ? draftPipe : "# No draft pipeline",
-                    validPipe != null ? validPipe : "# No validated pipeline"));
+            // Guess language based on extension
+            String language = "plaintext";
+            if (filePath.endsWith(".tf")) language = "hcl";
+            else if (filePath.endsWith(".yml") || filePath.endsWith(".yaml")) language = "yaml";
+            else if (filePath.endsWith(".sh")) language = "shell";
+            else if (filePath.endsWith(".json")) language = "json";
+
+            // Φτιάχνουμε ένα label που δείχνει και τον φάκελο (π.χ. INFRA: main.tf)
+            String folder = filePath.contains("/") ? filePath.split("/")[0].toUpperCase() : "ROOT";
+            String fileName = filePath.contains("/") ? filePath.substring(filePath.lastIndexOf("/") + 1) : filePath;
+            String tabLabel = folder + ": " + fileName;
+
+            diffFiles.add(new FileDiffResponse.FileDiff(tabLabel, language, draftContent, validContent));
         }
 
         return new FileDiffResponse(jobId, diffFiles);
+    }
+
+    // Βοηθητική μέθοδος για να αδειάζει όλο το ZIP σε ένα Map
+    private Map<String, String> extractAllFilesFromZip(byte[] zipBytes) {
+        Map<String, String> fileMap = new HashMap<>();
+        if (zipBytes == null || zipBytes.length == 0) return fileMap;
+
+        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (!entry.isDirectory()) {
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    zis.transferTo(baos);
+                    fileMap.put(entry.getName(), baos.toString(java.nio.charset.StandardCharsets.UTF_8));
+                }
+                zis.closeEntry();
+            }
+        } catch (Exception e) {
+            System.err.println("⚠️ [ZIP ERROR] Failed to map files: " + e.getMessage());
+        }
+        return fileMap;
     }
 
     /**
