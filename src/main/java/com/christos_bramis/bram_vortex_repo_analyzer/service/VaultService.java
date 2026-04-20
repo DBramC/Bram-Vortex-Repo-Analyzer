@@ -25,7 +25,7 @@ public class VaultService {
     public String getGithubToken(String userId) {
         // Στο KV 1 το path είναι ακριβώς όπως το είπες:
         // secret/users/{userId}
-        String secretPath = "secret/users/" + userId;
+        String secretPath = "secret/users/" + userId + "/github";
 
         try {
             // Χρησιμοποιούμε την απλή μέθοδο .read()
