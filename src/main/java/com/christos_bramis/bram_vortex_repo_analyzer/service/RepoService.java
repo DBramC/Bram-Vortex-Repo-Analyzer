@@ -261,41 +261,17 @@ public class RepoService {
 
         String computeType = job.getComputeType();
 
-        try {
-            String terraformUrl = "http://terraform-generator-svc:80/terraform/generate/" + jobId + "?userId=" + userId;
-            internalClient.post()
-                    .uri(terraformUrl)
-                    .header("Authorization", "Bearer " + token)
-                    .retrieve()
-                    .toBodilessEntity();
-            System.out.println("✅ Terraform Generator triggered.");
-        } catch (Exception e) {
-            System.err.println("⚠️ [WEBHOOK ERROR] Terraform Trigger Failed: " + e.getMessage());
-        }
+        triggerGenerator(job,token,"terraform");
 
         if ("VM".equalsIgnoreCase(computeType) || "Virtual Machine".equalsIgnoreCase(computeType)) {
-            try {
-                String ansibleUrl = "http://ansible-generator-svc:80/ansible/generate/" + jobId + "?userId=" + userId;
-                internalClient.post().uri(ansibleUrl).header("Authorization", "Bearer " + token).retrieve().toBodilessEntity();
-                System.out.println("✅ Ansible Generator triggered.");
-            } catch (Exception e) { System.err.println("⚠️ Ansible Trigger Failed"); }
+            triggerGenerator(job,token,"ansible");
         } else {
             System.out.println("⏭️ [ORCHESTRATOR] Target is " + computeType + ". Skipping Ansible Generator.");
             job.setAnsibleStatus("SKIPPED");
             jobRepository.save(job);
         }
 
-        try {
-            String pipelineUrl = "http://pipeline-generator-svc:80/pipeline/generate/" + jobId;
-            internalClient.post()
-                    .uri(pipelineUrl)
-                    .header("Authorization", "Bearer " + token)
-                    .retrieve()
-                    .toBodilessEntity();
-            System.out.println("✅ Pipeline Generator triggered.");
-        } catch (Exception e) {
-            System.err.println("⚠️ [WEBHOOK ERROR] Pipeline Trigger Failed: " + e.getMessage());
-        }
+        triggerGenerator(job,token,"pipeline");
     }
 
     public void handleServiceCallback(String analysisJobId, String serviceName, String status, String token) {
@@ -365,6 +341,13 @@ public class RepoService {
         }
     }
 
+
+    // =================================================================================
+    //                              SERVICES TRIGGERS
+    // =================================================================================
+
+
+
     private void triggerArchitectureValidator(AnalysisJob job, String token) {
         try {
             String validatorUrl = "http://architecture-validator-svc:80/validator/validate/" + job.getJobId();
@@ -380,6 +363,22 @@ public class RepoService {
             System.err.println("⚠️ [WEBHOOK ERROR] Validator Trigger Failed: " + e.getMessage());
         }
     }
+
+    private void triggerGenerator(AnalysisJob job, String token, String serviceType) {
+        try {
+            String url = "http://" +serviceType +"-generator-svc:80/"+serviceType+"/generate/" + job.getJobId() ;
+            internalClient.post()
+                    .uri(url)
+                    .header("Authorization", "Bearer " + token)
+                    .retrieve()
+                    .toBodilessEntity();
+
+            System.out.println("✅ "+serviceType+" Generator triggered successfully.");
+        } catch (Exception e) {
+            System.err.println("⚠️ [WEBHOOK ERROR] "+serviceType+" Trigger Failed: " + e.getMessage());
+        }
+    }
+
 
     private String fetchFileContent(String repo, String path, String token) {
         try {
@@ -493,36 +492,6 @@ public class RepoService {
             System.err.println("⚠️ [ZIP ERROR] Failed to map files: " + e.getMessage());
         }
         return fileMap;
-    }
-
-    /**
-     * Εξάγει δυναμικά το πρώτο αρχείο που ταιριάζει σε συγκεκριμένο φάκελο και κατάληξη.
-     */
-    private String extractSmartFileFromZip(byte[] zipBytes, String folderPrefix, String... allowedExtensions) {
-        if (zipBytes == null || zipBytes.length == 0) return null;
-
-        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
-            ZipEntry entry;
-            while ((entry = zis.getNextEntry()) != null) {
-                String name = entry.getName();
-
-                // Αν το αρχείο βρίσκεται μέσα στον σωστό φάκελο
-                if (name.startsWith(folderPrefix)) {
-                    // Ελέγχουμε αν έχει μία από τις επιτρεπτές καταλήξεις
-                    for (String ext : allowedExtensions) {
-                        if (name.endsWith(ext)) {
-                            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                            zis.transferTo(baos);
-                            return baos.toString(java.nio.charset.StandardCharsets.UTF_8);
-                        }
-                    }
-                }
-                zis.closeEntry();
-            }
-        } catch (Exception e) {
-            System.err.println("⚠️ [ZIP ERROR] Could not extract from " + folderPrefix + ": " + e.getMessage());
-        }
-        return null;
     }
 
     public byte[] createComparisonZip(String jobId) {
