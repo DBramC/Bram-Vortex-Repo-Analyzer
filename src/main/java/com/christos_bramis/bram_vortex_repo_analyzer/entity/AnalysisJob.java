@@ -24,6 +24,9 @@ public class AnalysisJob {
     @Column(name = "repo_name")
     private String repoName;
 
+    @Column(name = "repo_url") // 👈 ΠΡΟΣΘΕΣΕ ΑΥΤΟ
+    private String repoUrl;
+
     @Column(name = "target_cloud")
     private String targetCloud;
 
@@ -152,5 +155,13 @@ public class AnalysisJob {
 
     public void setMasterZip(byte[] masterZip) {
         this.masterZip = masterZip;
+    }
+
+    public String getRepoUrl() {
+        return repoUrl;
+    }
+
+    public void setRepoUrl(String repoUrl) {
+        this.repoUrl = repoUrl;
     }
 }

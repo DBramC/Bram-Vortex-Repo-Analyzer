@@ -210,6 +210,7 @@ public class RepoService {
         job.setJobId(jobId);
         job.setUserId(userId);
         job.setRepoId(request.getRepoId());
+        job.setRepoUrl(request.getRepoUrl());
         job.setRepoName(request.getRepoName() != null ? request.getRepoName() : ownerAndRepo);
         job.setComputeType(computeType);
         job.setTargetCloud(targetCloud);
