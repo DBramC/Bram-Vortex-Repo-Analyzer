@@ -530,7 +530,7 @@ public class RepoService {
         }
     }
 
-    public void triggerExecutionInCluster(Long jobId, String repoUrl, String jwtToken) {
+    public void triggerExecutionInCluster(String jobId, String repoUrl, String jwtToken) {
         // Εσωτερικό URL του Execution Service μέσα στο cluster[cite: 5]
         String executionUrl = "http://execution-svc:80/execution/execute";
 

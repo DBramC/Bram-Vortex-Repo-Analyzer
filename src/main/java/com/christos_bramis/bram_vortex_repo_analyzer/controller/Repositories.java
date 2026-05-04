@@ -170,7 +170,7 @@ public class Repositories {
 
     @PostMapping("/confirm-deployment/{jobId}")
     public ResponseEntity<?> confirmDeployment(
-            @PathVariable Long jobId,
+            @PathVariable String jobId,
             @RequestBody Map<String, String> payload,
             HttpServletRequest request) {
 
