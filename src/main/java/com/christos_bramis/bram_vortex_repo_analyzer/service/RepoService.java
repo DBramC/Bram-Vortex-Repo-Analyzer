@@ -12,6 +12,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -524,5 +528,29 @@ public class RepoService {
                 zos.closeEntry();
             }
         }
+    }
+
+    public void triggerExecutionInCluster(Long jobId, String repoUrl, String jwtToken) {
+        // Εσωτερικό URL του Execution Service μέσα στο cluster[cite: 5]
+        String executionUrl = "http://execution-svc:80/execution/execute";
+
+        Map<String, Object> requestBody = Map.of(
+                "jobId", jobId,
+                "repoUrl", repoUrl
+        );
+
+        // Χρήση του RestClient για το POST[cite: 6]
+        restClient.post()
+                .uri(executionUrl)
+                .header("Authorization", "Bearer " + jwtToken) // Προώθηση ταυτότητας[cite: 6]
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(requestBody)
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, (request, response) -> {
+                    throw new RuntimeException("Execution Service error: " + response.getStatusCode());
+                })
+                .toBodilessEntity();
+
+        System.out.println("🚀 [ORCHESTRATOR] Successfully triggered Execution for job " + jobId);
     }
 }

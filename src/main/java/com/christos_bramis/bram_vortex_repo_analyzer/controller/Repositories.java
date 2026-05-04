@@ -5,6 +5,7 @@ import com.christos_bramis.bram_vortex_repo_analyzer.dto.FileDiffResponse;
 import com.christos_bramis.bram_vortex_repo_analyzer.dto.RepoResponse;
 import com.christos_bramis.bram_vortex_repo_analyzer.entity.AnalysisJob;
 import com.christos_bramis.bram_vortex_repo_analyzer.service.RepoService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -13,6 +14,7 @@ import org.springframework.security.core.Authentication; // <--- Σωστό Impo
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @RestController
@@ -164,5 +166,30 @@ public class Repositories {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"comparison-" + jobId + ".zip\"")
                 .contentType(MediaType.parseMediaType("application/zip"))
                 .body(zip);
+    }
+
+    @PostMapping("/confirm-deployment/{jobId}")
+    public ResponseEntity<?> confirmDeployment(
+            @PathVariable Long jobId,
+            @RequestBody Map<String, String> payload,
+            HttpServletRequest request) {
+
+        // 1. Εξαγωγή του JWT από το τρέχον request[cite: 6]
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        String jwt = authHeader.substring(7);
+
+        // 2. Λήψη του repoUrl από το payload
+        String repoUrl = payload.get("repoUrl");
+
+        // 3. Εσωτερική κλήση μέσω του service[cite: 6]
+        repoService.triggerExecutionInCluster(jobId, repoUrl, jwt);
+
+        return ResponseEntity.ok(Map.of(
+                "status", "IN_PROGRESS",
+                "message", "Deployment triggered in-cluster. Check your GitHub Actions."
+        ));
     }
 }
