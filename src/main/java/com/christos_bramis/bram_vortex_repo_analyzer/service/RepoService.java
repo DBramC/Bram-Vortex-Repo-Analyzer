@@ -242,7 +242,7 @@ public class RepoService {
 
                 // --- ΝΕΟ ΒΗΜΑ: Υπολογισμός Κόστους ---
                 System.out.println("💸 [ASYNC] Generating Cost Drafts with Infracost...");
-                Map<String, Double> costDrafts = generateCostsFromBlueprint(result, targetRegion);
+                Map<String, Double> costDrafts = generateCostsFromBlueprint(result, targetRegion, token);
 
                 // 🌟 ΑΠΛΑ ΤΟ ΚΑΝΕΙΣ SET ΣΤΟ ΑΝΤΙΚΕΙΜΕΝΟ ΣΟΥ! 🌟
                 result.setCostEstimates(costDrafts);
@@ -565,7 +565,7 @@ public class RepoService {
         System.out.println("🚀 [ORCHESTRATOR] Successfully triggered Execution for job " + jobId);
     }
 
-    public Map<String, Double> generateCostsFromBlueprint(InfrastructureAnalysis blueprint, String targetRegion) {
+    public Map<String, Double> generateCostsFromBlueprint(InfrastructureAnalysis blueprint, String targetRegion, String token) {
 
         // 1. Δυναμικό Prompt που προσαρμόζεται στον Cloud Provider του χρήστη
         String costPrompt = String.format("""
@@ -608,6 +608,7 @@ public class RepoService {
         // 3. Στέλνεις τα SKUs στον Execution Service
         return internalClient.post()
                 .uri("http://execution-svc:80/execution/analyze-costs")
+                .header("Authorization", "Bearer " + token)
                 .header("X-Target-Cloud", blueprint.getTargetCloud())
                 .contentType(MediaType.APPLICATION_JSON) // Ορίζουμε ότι στέλνουμε JSON
                 .body(aiSkuResponse)                     // Στο RestClient λέγεται απλά body()
