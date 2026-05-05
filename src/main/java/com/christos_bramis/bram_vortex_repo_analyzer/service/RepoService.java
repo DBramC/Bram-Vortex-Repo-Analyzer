@@ -216,7 +216,7 @@ public class RepoService {
         job.setRepoId(request.getRepoId());
         job.setRepoUrl(request.getRepoUrl());
         job.setRepoName(request.getRepoName() != null ? request.getRepoName() : ownerAndRepo);
-        job.setComputeType(computeType);
+        job.setComputeType("computeType");
         job.setTargetCloud(targetCloud);
         job.setTargetRegion(targetRegion);
         job.setStatus("ANALYZING");
