@@ -203,6 +203,8 @@ public class Repositories {
             @RequestBody Map<String, String> payload,
             @RequestHeader(value = "Authorization", required = false) String token) { // Προσθήκη Token αν το θες για τα downstream
 
+        String cleanToken = (token != null) ? token.replace("Bearer ", "").trim() : null;
+
         String selectedCompute = payload.get("selectedCompute"); // π.χ. "Container"
         System.out.println("▶️ [RESUME] User selected " + selectedCompute + " for Job: " + jobId);
 
@@ -232,7 +234,7 @@ public class Repositories {
 
             // 5. ΕΔΩ ΚΑΛΕΙΣ ΤΑ DOWNSTREAM SERVICES (Αφού ο χρήστης αποφάσισε!)
             System.out.println("🚀 [RESUME] Triggering downstream generators...");
-            repoService.triggerDownstreamServices(jobId, job.getUserId(), token);
+            repoService.triggerDownstreamServices(jobId, job.getUserId(), cleanToken);
 
             return ResponseEntity.ok(Map.of("message", "Selection saved, generating infrastructure..."));
 

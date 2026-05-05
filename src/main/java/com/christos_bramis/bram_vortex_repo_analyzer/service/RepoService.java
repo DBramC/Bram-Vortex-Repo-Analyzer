@@ -567,39 +567,38 @@ public class RepoService {
 
     public Map<String, Double> generateCostsFromBlueprint(InfrastructureAnalysis blueprint, String targetRegion, String token) {
 
-        // 1. Δυναμικό Prompt που προσαρμόζεται στον Cloud Provider του χρήστη
+        // 1. Δυναμικό Prompt που ΕΠΙΒΑΛΛΕΙ και τα 3 Compute Types
         String costPrompt = String.format("""
-    Act as a %1$s Cloud Architect. Based on the following application architecture blueprint, 
-    provide the specific hardware specifications (Instance Types / SKUs) for the recommended compute types.
-    
-    CONTEXT:
-    - Target Cloud: %1$s
-    - Target Region: %2$s
-    - Tech Stack: %3$s (%4$s)
-    - Required Databases/Caches: %5$s
-    - Recommended Compute Types: %6$s
-    
-    TASK:
-    For EACH compute type listed in 'Recommended Compute Types', provide the exact %1$s specifications needed.
-    IMPORTANT: Ensure the provided sizes are 100%% valid for %1$s (e.g., 't3.medium' for AWS, 'Standard_D2s_v3' for Azure, 'e2-medium' for GCP).
-    
-    OUTPUT RULES:
-    - Return ONLY a raw JSON object.
-    - Use the compute types as keys.
-    
-    SCHEMA REFERENCE:
-    {
-      "Virtual Machine": { "instance_type": "<VALID_%1$s_INSTANCE_TYPE>" },
-      "Container": { "cpu": "1.0", "memory": "2.0" },
-      "Kubernetes": { "instance_type": "<VALID_%1$s_NODE_TYPE>", "node_count": 2 }
-    }
-    """,
-                blueprint.getTargetCloud(), // %1$s (Χρησιμοποιείται σε 4 διαφορετικά σημεία στο prompt!)
-                targetRegion,               // %2$s
-                blueprint.getPrimaryLanguage(), // %3$s
-                blueprint.getFramework(),       // %4$s
-                blueprint.getRequiredDatabasesAndCaches().toString(), // %5$s
-                blueprint.getValidComputeTypes().toString()           // %6$s
+Act as a %1$s Cloud Architect. You MUST provide specific hardware specifications for ALL THREE of the following compute categories, regardless of application complexity.
+
+CONTEXT:
+- Target Cloud: %1$s
+- Target Region: %2$s
+- Tech Stack: %3$s (%4$s)
+
+TASK:
+Provide exact %1$s specifications for:
+1. "Virtual Machine": A specific, cost-effective instance type (e.g., 't3.medium').
+2. "Container": Specific CPU and Memory allocation (e.g., cpu: 1.0, memory: 2.0).
+3. "Kubernetes": A specific node instance type and a count of at least 2 nodes.
+
+IMPORTANT: All hardware SKUs must be 100%% valid for %1$s in %2$s.
+
+OUTPUT RULES:
+- Return ONLY a raw JSON object.
+- YOU MUST INCLUDE ALL THREE KEYS: "Virtual Machine", "Container", "Kubernetes".
+
+SCHEMA:
+{
+  "Virtual Machine": { "instance_type": "string" },
+  "Container": { "cpu": "string", "memory": "string" },
+  "Kubernetes": { "instance_type": "string", "node_count": number }
+}
+""",
+                blueprint.getTargetCloud(),
+                targetRegion,
+                blueprint.getPrimaryLanguage(),
+                blueprint.getFramework()
         );
 
         // 2. Καλείς το AI (ελαφρύ και γρήγορο)
