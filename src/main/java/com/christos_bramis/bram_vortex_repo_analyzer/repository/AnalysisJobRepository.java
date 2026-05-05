@@ -16,6 +16,8 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, String
     // Φέρνει το ιστορικό αναλύσεων ενός χρήστη
     List<AnalysisJob> findByUserIdOrderByCreatedAtDesc(String userId);
 
+    AnalysisJob findByJobId(String jobId);
+
     // --- ATOMIC STATUS UPDATES (Για αποφυγή Race Conditions) ---
 
     @Modifying

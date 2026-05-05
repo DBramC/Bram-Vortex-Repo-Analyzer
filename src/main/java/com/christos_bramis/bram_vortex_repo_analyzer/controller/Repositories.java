@@ -2,9 +2,11 @@ package com.christos_bramis.bram_vortex_repo_analyzer.controller;
 
 import com.christos_bramis.bram_vortex_repo_analyzer.dto.AnalysisRequest;
 import com.christos_bramis.bram_vortex_repo_analyzer.dto.FileDiffResponse;
+import com.christos_bramis.bram_vortex_repo_analyzer.dto.InfrastructureAnalysis;
 import com.christos_bramis.bram_vortex_repo_analyzer.dto.RepoResponse;
 import com.christos_bramis.bram_vortex_repo_analyzer.entity.AnalysisJob;
 import com.christos_bramis.bram_vortex_repo_analyzer.service.RepoService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -191,5 +193,52 @@ public class Repositories {
                 "status", "IN_PROGRESS",
                 "message", "Deployment triggered in-cluster. Check your GitHub Actions."
         ));
+    }
+
+    // Στο Repositories.java (Analyzer Controller)
+
+    @PostMapping("/jobs/{jobId}/select-compute")
+    public ResponseEntity<?> submitUserSelection(
+            @PathVariable String jobId,
+            @RequestBody Map<String, String> payload,
+            @RequestHeader(value = "Authorization", required = false) String token) { // Προσθήκη Token αν το θες για τα downstream
+
+        String selectedCompute = payload.get("selectedCompute"); // π.χ. "Container"
+        System.out.println("▶️ [RESUME] User selected " + selectedCompute + " for Job: " + jobId);
+
+        // 1. Βρίσκεις το Job
+        AnalysisJob job = repoService.findAnalysisJob(jobId);
+
+        // Έλεγχος αν το Job είναι όντως σε κατάσταση αναμονής
+        if (!"PENDING_USER_SELECTION".equals(job.getStatus())) {
+            return ResponseEntity.badRequest().body("Job is not waiting for selection.");
+        }
+
+        ObjectMapper mapper = new ObjectMapper();
+        try {
+            // 2. Ενημερώνεις το Blueprint
+            InfrastructureAnalysis blueprint = mapper.treeToValue(job.getBlueprintJson(), InfrastructureAnalysis.class);
+            blueprint.setComputeCategory(selectedCompute);
+
+            // Προαιρετικό: Set Target Compute βάσει cloud. Π.χ. αν AWS και Container -> Fargate
+            // blueprint.setTargetCompute("...");
+
+            // 3. Σώζεις ξανά το ανανεωμένο Blueprint
+            job.setBlueprintJson(mapper.valueToTree(blueprint));
+
+            // 4. Αλλάζεις το status για να προχωρήσει το Terraform
+            job.setStatus("ANALYZING");
+            repoService.saveAnalysisJob(job);
+
+            // 5. ΕΔΩ ΚΑΛΕΙΣ ΤΑ DOWNSTREAM SERVICES (Αφού ο χρήστης αποφάσισε!)
+            System.out.println("🚀 [RESUME] Triggering downstream generators...");
+            repoService.triggerDownstreamServices(jobId, job.getUserId(), token);
+
+            return ResponseEntity.ok(Map.of("message", "Selection saved, generating infrastructure..."));
+
+        } catch (Exception e) {
+            System.err.println("❌ [RESUME ERROR] " + e.getMessage());
+            return ResponseEntity.internalServerError().body("Error updating blueprint or triggering services");
+        }
     }
 }

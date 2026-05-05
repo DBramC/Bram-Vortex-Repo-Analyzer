@@ -10,6 +10,7 @@ public class InfrastructureAnalysis {
     private String primaryLanguage;
     private String framework;
     private List<String> requiredDatabasesAndCaches;
+    private Map<String, Double> costEstimates;
 
     // --- Προδιαγραφές Υποδομής ---
     private Map<String, String> computeSpecs;
@@ -142,4 +143,12 @@ public class InfrastructureAnalysis {
 
     public CiCdMetadata getCiCdMetadata() { return ciCdMetadata; }
     public void setCiCdMetadata(CiCdMetadata ciCdMetadata) { this.ciCdMetadata = ciCdMetadata; }
+
+    public Map<String, Double> getCostEstimates() {
+        return costEstimates;
+    }
+
+    public void setCostEstimates(Map<String, Double> costEstimates) {
+        this.costEstimates = costEstimates;
+    }
 }

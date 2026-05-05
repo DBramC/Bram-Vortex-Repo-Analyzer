@@ -9,6 +9,7 @@ import com.christos_bramis.bram_vortex_repo_analyzer.entity.ValidatorJob;
 import com.christos_bramis.bram_vortex_repo_analyzer.repository.AnalysisJobRepository;
 import com.christos_bramis.bram_vortex_repo_analyzer.repository.ValidatorJobRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.core.ParameterizedTypeReference;
@@ -18,6 +19,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+import reactor.core.publisher.Mono;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -37,16 +39,18 @@ public class RepoService {
     private final ObjectMapper objectMapper;
     private final RestClient internalClient = RestClient.create();
     private final ValidatorJobRepository validatorJobRepository;
+    private final AnalysisJobRepository analysisJobRepository;
 
     public RepoService(RestClient.Builder builder, VaultService vaultService, ChatModel chatModel,
                        AnalysisJobRepository jobRepository, ObjectMapper objectMapper,
-                       ValidatorJobRepository validatorJobRepository) {
+                       ValidatorJobRepository validatorJobRepository, AnalysisJobRepository analysisJobRepository) {
         this.restClient = builder.baseUrl("https://api.github.com").build();
         this.vaultService = vaultService;
         this.chatModel = chatModel;
         this.jobRepository = jobRepository;
         this.objectMapper = objectMapper;
         this.validatorJobRepository = validatorJobRepository;
+        this.analysisJobRepository = analysisJobRepository;
     }
 
     public List<RepoResponse> getUserRepositories(String userId) {
@@ -234,15 +238,21 @@ public class RepoService {
                 }
 
                 System.out.println("📥 [ASYNC] AI Response received. Converting to Blueprint...");
-
                 InfrastructureAnalysis result = outputConverter.convert(aiResponse);
-                job.setBlueprintJson(objectMapper.valueToTree(result));
-                job.setStatus("ANALYZING");
-                jobRepository.save(job);
-                System.out.println("🏁 [FINISH] Job " + jobId + " completed successfully! Blueprint is ready.");
 
-                // Triggering downstream
-                triggerDownstreamServices(jobId, userId, token);
+                // --- ΝΕΟ ΒΗΜΑ: Υπολογισμός Κόστους ---
+                System.out.println("💸 [ASYNC] Generating Cost Drafts with Infracost...");
+                Map<String, Double> costDrafts = generateCostsFromBlueprint(result, targetRegion);
+
+                // 🌟 ΑΠΛΑ ΤΟ ΚΑΝΕΙΣ SET ΣΤΟ ΑΝΤΙΚΕΙΜΕΝΟ ΣΟΥ! 🌟
+                result.setCostEstimates(costDrafts);
+
+                // Αποθήκευση στο Job
+                job.setBlueprintJson(objectMapper.valueToTree(result)); // Απευθείας μετατροπή όλου του DTO
+                job.setStatus("PENDING_USER_SELECTION");
+                jobRepository.save(job);
+
+                System.out.println("⏳ [PAUSED] Job " + jobId + " is waiting for user to select compute type.");
 
             } catch (Exception e) {
                 System.err.println("❌ [ASYNC ERROR] Processing failed for Job " + jobId + ": " + e.getMessage());
@@ -255,7 +265,7 @@ public class RepoService {
         return jobId;
     }
 
-    private void triggerDownstreamServices(String jobId, String userId, String token) {
+    public void triggerDownstreamServices(String jobId, String userId, String token) {
         System.out.println("📢 [WEBHOOK] Triggering downstream generators for Job: " + jobId);
 
         AnalysisJob job = jobRepository.findById(jobId).orElse(null);
@@ -553,5 +563,63 @@ public class RepoService {
                 .toBodilessEntity();
 
         System.out.println("🚀 [ORCHESTRATOR] Successfully triggered Execution for job " + jobId);
+    }
+
+    public Map<String, Double> generateCostsFromBlueprint(InfrastructureAnalysis blueprint, String targetRegion) {
+
+        // 1. Δυναμικό Prompt που προσαρμόζεται στον Cloud Provider του χρήστη
+        String costPrompt = String.format("""
+    Act as a %1$s Cloud Architect. Based on the following application architecture blueprint, 
+    provide the specific hardware specifications (Instance Types / SKUs) for the recommended compute types.
+    
+    CONTEXT:
+    - Target Cloud: %1$s
+    - Target Region: %2$s
+    - Tech Stack: %3$s (%4$s)
+    - Required Databases/Caches: %5$s
+    - Recommended Compute Types: %6$s
+    
+    TASK:
+    For EACH compute type listed in 'Recommended Compute Types', provide the exact %1$s specifications needed.
+    IMPORTANT: Ensure the provided sizes are 100%% valid for %1$s (e.g., 't3.medium' for AWS, 'Standard_D2s_v3' for Azure, 'e2-medium' for GCP).
+    
+    OUTPUT RULES:
+    - Return ONLY a raw JSON object.
+    - Use the compute types as keys.
+    
+    SCHEMA REFERENCE:
+    {
+      "Virtual Machine": { "instance_type": "<VALID_%1$s_INSTANCE_TYPE>" },
+      "Container": { "cpu": "1.0", "memory": "2.0" },
+      "Kubernetes": { "instance_type": "<VALID_%1$s_NODE_TYPE>", "node_count": 2 }
+    }
+    """,
+                blueprint.getTargetCloud(), // %1$s (Χρησιμοποιείται σε 4 διαφορετικά σημεία στο prompt!)
+                targetRegion,               // %2$s
+                blueprint.getPrimaryLanguage(), // %3$s
+                blueprint.getFramework(),       // %4$s
+                blueprint.getRequiredDatabasesAndCaches().toString(), // %5$s
+                blueprint.getValidComputeTypes().toString()           // %6$s
+        );
+
+        // 2. Καλείς το AI (ελαφρύ και γρήγορο)
+        String aiSkuResponse = chatModel.call(costPrompt);
+
+        // 3. Στέλνεις τα SKUs στον Execution Service
+        return internalClient.post()
+                .uri("http://execution-svc:80/execution/analyze-costs")
+                .header("X-Target-Cloud", blueprint.getTargetCloud())
+                .contentType(MediaType.APPLICATION_JSON) // Ορίζουμε ότι στέλνουμε JSON
+                .body(aiSkuResponse)                     // Στο RestClient λέγεται απλά body()
+                .retrieve()
+                .body(new ParameterizedTypeReference<>() {});
+    }
+
+    public AnalysisJob findAnalysisJob (String jobId) {
+        return analysisJobRepository.findByJobId(jobId);
+    }
+
+    public void saveAnalysisJob (AnalysisJob job) {
+        analysisJobRepository.save(job);
     }
 }
