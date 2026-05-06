@@ -629,7 +629,6 @@ SCHEMA:
         analysisJobRepository.save(job);
     }
 
-    @Transactional
     public void saveAndFlushJob(AnalysisJob job) {
         // Η saveAndFlush αναγκάζει τη βάση να ενημερωθεί ΑΜΕΣΩΣ
         analysisJobRepository.saveAndFlush(job);

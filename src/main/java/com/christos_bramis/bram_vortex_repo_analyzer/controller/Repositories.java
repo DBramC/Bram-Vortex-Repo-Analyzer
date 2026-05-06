@@ -200,7 +200,6 @@ public class Repositories {
     // Στο Repositories.java (Analyzer Controller)
 
     @PostMapping("/jobs/{jobId}/select-compute")
-// @Transactional <-- Αν το 403/Race Condition επιμένει, δοκίμασε να το βγάλεις προσωρινά
     public ResponseEntity<?> submitUserSelection(
             @PathVariable String jobId,
             @RequestBody Map<String, String> payload,
