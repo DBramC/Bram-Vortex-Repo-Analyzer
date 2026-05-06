@@ -208,9 +208,6 @@ public class Repositories {
         String cleanToken = (token != null) ? token.replace("Bearer ", "").trim() : null;
         String rawSelection = payload.get("selectedCompute");
 
-        System.out.println("\n🔍 [DEBUG START] --- User Selection Process ---");
-        System.out.println("🔍 [DEBUG] Raw Input from UI: " + rawSelection);
-
         // --- STEP 1: SANITIZATION ---
         String buzzword;
         String lower = rawSelection.toLowerCase();
@@ -221,19 +218,15 @@ public class Repositories {
         } else {
             buzzword = "VM";
         }
-        System.out.println("🔍 [DEBUG] Mapped Buzzword: " + buzzword);
 
         // --- STEP 2: UPDATE JOB ---
         AnalysisJob job = repoService.findAnalysisJob(jobId);
         if (job == null) {
-            System.err.println("❌ [DEBUG] Job not found in DB: " + jobId);
             return ResponseEntity.notFound().build();
         }
 
         ObjectMapper mapper = new ObjectMapper();
         try {
-            // Δες τι είχε το JSON πριν την αλλαγή
-            System.out.println("🔍 [DEBUG] Original JSON in DB: " + job.getBlueprintJson().toString());
 
             InfrastructureAnalysis blueprint = mapper.treeToValue(job.getBlueprintJson(), InfrastructureAnalysis.class);
 
@@ -241,28 +234,22 @@ public class Repositories {
             blueprint.setComputeCategory(buzzword);
             blueprint.setTargetCompute(buzzword);
 
-            System.out.println("🔍 [DEBUG] POJO Updated -> Target: " + blueprint.getTargetCompute() + ", Category: " + blueprint.getComputeCategory());
 
             // Μετατροπή POJO σε JSON Node
             job.setBlueprintJson(mapper.valueToTree(blueprint));
             job.setStatus("EXECUTING");
 
-            // ΑΥΤΟ ΕΙΝΑΙ ΤΟ ΠΙΟ ΚΡΙΣΙΜΟ PRINT
-            System.out.println("🔥 [DEBUG] FINAL JSON TO BE SAVED: " + job.getBlueprintJson().toString());
-
             // --- STEP 3: FORCE SAVE & FLUSH ---
             repoService.saveAndFlushJob(job);
-            System.out.println("💾 [DEBUG] DB saveAndFlush executed for job: " + jobId);
 
             // --- STEP 4: ASYNC TRIGGER ---
             final String userId = job.getUserId();
             CompletableFuture.runAsync(() -> {
                 try {
                     System.out.println("⏳ [DEBUG ASYNC] Sleeping for 400ms before trigger...");
-                    Thread.sleep(400);
 
                     System.out.println("🚀 [DEBUG ASYNC] Triggering generators for: " + jobId);
-                    repoService.triggerDownstreamServices(jobId, userId, cleanToken);
+                    repoService.triggerDownstreamServices(job, userId, cleanToken);
                 } catch (Exception e) {
                     System.err.println("❌ [DEBUG ASYNC ERROR] " + e.getMessage());
                 }

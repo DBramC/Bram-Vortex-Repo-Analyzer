@@ -266,12 +266,12 @@ public class RepoService {
         return jobId;
     }
 
-    public void triggerDownstreamServices(String jobId, String userId, String token) {
-        System.out.println("📢 [WEBHOOK] Triggering downstream generators for Job: " + jobId);
+    public void triggerDownstreamServices(AnalysisJob job, String userId, String token) {
+        System.out.println("📢 [WEBHOOK] Triggering downstream generators for Job: " + job.getJobId());
 
-        AnalysisJob job = jobRepository.findById(jobId).orElse(null);
+
         if (job == null) {
-            System.err.println("⚠️ [WEBHOOK ERROR] Job not found in DB: " + jobId);
+            System.err.println("⚠️ [WEBHOOK ERROR] Job not found in DB: " + job.getJobId());
             return;
         }
 
