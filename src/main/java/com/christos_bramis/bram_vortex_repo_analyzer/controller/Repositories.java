@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/dashboard")
@@ -201,46 +202,55 @@ public class Repositories {
     public ResponseEntity<?> submitUserSelection(
             @PathVariable String jobId,
             @RequestBody Map<String, String> payload,
-            @RequestHeader(value = "Authorization", required = false) String token) { // Προσθήκη Token αν το θες για τα downstream
+            @RequestHeader(value = "Authorization", required = false) String token) {
 
         String cleanToken = (token != null) ? token.replace("Bearer ", "").trim() : null;
-
-        String selectedCompute = payload.get("selectedCompute"); // π.χ. "Container"
-        System.out.println("▶️ [RESUME] User selected " + selectedCompute + " for Job: " + jobId);
+        String selectedCompute = payload.get("selectedCompute");
 
         // 1. Βρίσκεις το Job
         AnalysisJob job = repoService.findAnalysisJob(jobId);
 
-        // Έλεγχος αν το Job είναι όντως σε κατάσταση αναμονής
         if (!"PENDING_USER_SELECTION".equals(job.getStatus())) {
             return ResponseEntity.badRequest().body("Job is not waiting for selection.");
         }
 
         ObjectMapper mapper = new ObjectMapper();
         try {
-            // 2. Ενημερώνεις το Blueprint
+            // 2. Μετατροπή σε POJO και "Καθαρισμός"
             InfrastructureAnalysis blueprint = mapper.treeToValue(job.getBlueprintJson(), InfrastructureAnalysis.class);
+
+            // Ορίζουμε ρητά την κατηγορία
             blueprint.setComputeCategory(selectedCompute);
 
-            // Προαιρετικό: Set Target Compute βάσει cloud. Π.χ. αν AWS και Container -> Fargate
-            // blueprint.setTargetCompute("...");
+            // ΚΡΙΣΙΜΟ: Εδώ "κλειδώνεις" το targetCompute για να ξέρει ο Terraform Generator τι να φτιάξει
+            // Αν θες π.χ. στο AWS το "Container" να μεταφράζεται πάντα σε "Fargate"
 
-            // 3. Σώζεις ξανά το ανανεωμένο Blueprint
+            blueprint.setTargetCompute(selectedCompute);
+
+
+            // 3. Ενημέρωση και αποθήκευση στη Βάση
             job.setBlueprintJson(mapper.valueToTree(blueprint));
-
-            // 4. Αλλάζεις το status για να προχωρήσει το Terraform
-            job.setStatus("ANALYZING");
+            job.setStatus("EXECUTING"); // Αλλάζουμε σε EXECUTING για να ξέρει το UI ότι ξεκίνησε η παραγωγή
             repoService.saveAnalysisJob(job);
 
-            // 5. ΕΔΩ ΚΑΛΕΙΣ ΤΑ DOWNSTREAM SERVICES (Αφού ο χρήστης αποφάσισε!)
-            System.out.println("🚀 [RESUME] Triggering downstream generators...");
-            repoService.triggerDownstreamServices(jobId, job.getUserId(), cleanToken);
+            // 4. ASYNC TRIGGER (Για να μην φάει timeout το Frontend)
+            // Επιστρέφουμε αμέσως 200 OK και οι generators τρέχουν στο παρασκήνιο
+            CompletableFuture.runAsync(() -> {
+                try {
+                    System.out.println("🚀 [RESUME ASYNC] Triggering generators for Job: " + jobId);
+                    repoService.triggerDownstreamServices(jobId, job.getUserId(), cleanToken);
+                } catch (Exception e) {
+                    System.err.println("❌ [ASYNC TRIGGER ERROR] " + e.getMessage());
+                }
+            });
 
-            return ResponseEntity.ok(Map.of("message", "Selection saved, generating infrastructure..."));
+            return ResponseEntity.ok(Map.of(
+                    "message", "Selection saved",
+                    "status", "EXECUTING"
+            ));
 
         } catch (Exception e) {
-            System.err.println("❌ [RESUME ERROR] " + e.getMessage());
-            return ResponseEntity.internalServerError().body("Error updating blueprint or triggering services");
+            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
         }
     }
 }
