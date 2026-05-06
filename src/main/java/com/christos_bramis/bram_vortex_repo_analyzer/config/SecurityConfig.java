@@ -2,6 +2,7 @@ package com.christos_bramis.bram_vortex_repo_analyzer.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -21,18 +22,24 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtFilter) throws Exception {
         http
-                // 1. Σύνδεση με το Bean του CORS που ορίζουμε παρακάτω
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
 
                 .authorizeHttpRequests(auth -> auth
+                        // 1. Επιτρέπουμε τα στατικά αρχεία της React για να μπορεί να ξεκινήσει η εφαρμογή
+                        .requestMatchers("/", "/index.html", "/static/**", "/*.js", "/*.css", "/*.json", "/*.ico", "/*.png").permitAll()
+
+                        // 2. ΕΠΙΤΡΕΠΟΥΜΕ τα GET requests στα paths του Frontend (Refresh Fix)
+                        // Αυτό επιτρέπει στον browser να πάρει το index.html χωρίς JWT
+                        .requestMatchers(HttpMethod.GET, "/dashboard", "/dashboard/**", "/login").permitAll()
+
+                        // 3. Επιτρέπουμε το Actuator
                         .requestMatchers("/actuator/**").permitAll()
-                        // Όλα τα endpoints του dashboard απαιτούν authentication
-                        .requestMatchers("/dashboard/**").authenticated()
+
+                        // 4. ΟΛΑ τα υπόλοιπα (API calls, POST/PUT/DELETE) απαιτούν Authentication
                         .anyRequest().authenticated()
                 )
 
@@ -44,21 +51,11 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-
-        // 2. ΕΠΙΤΡΕΠΟΥΜΕ ΜΟΝΟ ΤΟ ORIGIN ΤΟΥ FRONTEND
-        // Αν η React τρέχει σε άλλη πόρτα (π.χ. 5173), άλλαξέ το εδώ.
-        configuration.setAllowedOrigins(List.of("http://localhost", "http://127.0.0.1"));
-
-        // 3. ΕΠΙΤΡΕΠΟΥΜΕ ΣΥΓΚΕΚΡΙΜΕΝΕΣ ΜΕΘΟΔΟΥΣ
+        // Επιτρέπουμε το origin της React (προσαρμογή αν τρέχει σε άλλη πόρτα)
+        configuration.setAllowedOrigins(List.of("http://localhost", "http://127.0.0.1", "http://localhost:3000", "http://localhost:5173"));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-
-        // 4. ΕΠΙΤΡΕΠΟΥΜΕ ΣΥΓΚΕΚΡΙΜΕΝΑ HEADERS
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With"));
-
-        // 5. ΕΠΙΤΡΕΠΟΥΜΕ CREDENTIALS (αν ποτέ χρησιμοποιήσεις cookies/sessions)
         configuration.setAllowCredentials(true);
-
-        // 6. PREFLIGHT CACHE (Πόσο χρόνο ο browser θα "θυμάται" ότι το CORS είναι ΟΚ)
         configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
