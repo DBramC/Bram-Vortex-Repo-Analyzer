@@ -10,6 +10,7 @@ import com.christos_bramis.bram_vortex_repo_analyzer.repository.AnalysisJobRepos
 import com.christos_bramis.bram_vortex_repo_analyzer.repository.ValidatorJobRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import jakarta.transaction.Transactional;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.core.ParameterizedTypeReference;
@@ -626,5 +627,11 @@ SCHEMA:
 
     public void saveAnalysisJob (AnalysisJob job) {
         analysisJobRepository.save(job);
+    }
+
+    @Transactional
+    public void saveAndFlushJob(AnalysisJob job) {
+        // Η saveAndFlush αναγκάζει τη βάση να ενημερωθεί ΑΜΕΣΩΣ
+        analysisJobRepository.saveAndFlush(job);
     }
 }

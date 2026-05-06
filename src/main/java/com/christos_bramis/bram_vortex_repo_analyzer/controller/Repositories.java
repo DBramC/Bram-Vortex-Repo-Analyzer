@@ -8,6 +8,7 @@ import com.christos_bramis.bram_vortex_repo_analyzer.entity.AnalysisJob;
 import com.christos_bramis.bram_vortex_repo_analyzer.service.RepoService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.transaction.Transactional;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -199,55 +200,67 @@ public class Repositories {
     // Στο Repositories.java (Analyzer Controller)
 
     @PostMapping("/jobs/{jobId}/select-compute")
+    @Transactional // Εξασφαλίζει ότι η αλλαγή είναι ατομική
     public ResponseEntity<?> submitUserSelection(
             @PathVariable String jobId,
             @RequestBody Map<String, String> payload,
             @RequestHeader(value = "Authorization", required = false) String token) {
 
         String cleanToken = (token != null) ? token.replace("Bearer ", "").trim() : null;
-        String rawSelection = payload.get("selectedCompute"); // Αυτό που έρχεται από το UI
+        String rawSelection = payload.get("selectedCompute");
 
-        // 1. Mapping στα 3 Buzzwords
+        // --- STEP 1: SANITIZATION (Buzzword Mapping) ---
         String buzzword;
-        if (rawSelection.toLowerCase().contains("container")) {
+        String lower = rawSelection.toLowerCase();
+        if (lower.contains("container")) {
             buzzword = "managed containers";
-        } else if (rawSelection.toLowerCase().contains("kubernetes") || rawSelection.toLowerCase().contains("k8s")) {
+        } else if (lower.contains("kubernetes") || lower.contains("k8s") || lower.contains("cluster")) {
             buzzword = "kubernetes cluster";
         } else {
             buzzword = "VM";
         }
 
-        // 2. Εύρεση Job
+        // --- STEP 2: UPDATE JOB ---
         AnalysisJob job = repoService.findAnalysisJob(jobId);
+        if (!"PENDING_USER_SELECTION".equals(job.getStatus())) {
+            return ResponseEntity.badRequest().body("Job is not in selection state.");
+        }
 
         ObjectMapper mapper = new ObjectMapper();
         try {
             InfrastructureAnalysis blueprint = mapper.treeToValue(job.getBlueprintJson(), InfrastructureAnalysis.class);
 
-            // Επιβάλλουμε τα buzzwords στο blueprint
+            // Επιβολή των buzzwords
             blueprint.setComputeCategory(buzzword);
             blueprint.setTargetCompute(buzzword);
 
-            // 3. Save & Force Flush (Για να προλάβει το Async)
             job.setBlueprintJson(mapper.valueToTree(blueprint));
             job.setStatus("EXECUTING");
 
-            // Χρησιμοποίησε την repoService που καλεί το saveAndFlush
-            repoService.saveAnalysisJob(job);
+            // --- STEP 3: FORCE SAVE & FLUSH ---
+            // Χρησιμοποιούμε saveAndFlush για να στείλουμε το SQL UPDATE τώρα!
+            repoService.saveAndFlushJob(job);
 
-            // 4. Async Trigger
-            final String finalUserId = job.getUserId();
+            System.out.println("💾 [DB SAVE] Target set to '" + buzzword + "' for job " + jobId);
+
+            // --- STEP 4: ASYNC TRIGGER WITH SAFETY DELAY ---
+            final String userId = job.getUserId();
             CompletableFuture.runAsync(() -> {
                 try {
-                    // Μικρό delay για να είμαστε σίγουροι ότι το DB Transaction έκλεισε
-                    Thread.sleep(200);
-                    repoService.triggerDownstreamServices(jobId, finalUserId, cleanToken);
+                    // To 400ms delay δίνει χρόνο στη Spring να κάνει COMMIT το transaction
+                    // του κύριου thread πριν ο Generator ζητήσει τα δεδομένα.
+                    Thread.sleep(300);
+                    System.out.println("🚀 [RESUME ASYNC] Triggering generators for: " + jobId);
+                    repoService.triggerDownstreamServices(jobId, userId, cleanToken);
                 } catch (Exception e) {
                     System.err.println("❌ [ASYNC ERROR] " + e.getMessage());
                 }
             });
 
-            return ResponseEntity.ok(Map.of("message", "Target set to: " + buzzword));
+            return ResponseEntity.ok(Map.of(
+                    "message", "Selection saved as " + buzzword,
+                    "target", buzzword
+            ));
 
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
