@@ -238,6 +238,7 @@ public class Repositories {
             // Μετατροπή POJO σε JSON Node
             job.setBlueprintJson(mapper.valueToTree(blueprint));
             job.setStatus("EXECUTING");
+            job.setComputeType(buzzword);
 
             // --- STEP 3: FORCE SAVE & FLUSH ---
             repoService.saveAndFlushJob(job);
