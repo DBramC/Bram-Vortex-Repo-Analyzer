@@ -200,7 +200,7 @@ public class Repositories {
     // Στο Repositories.java (Analyzer Controller)
 
     @PostMapping("/jobs/{jobId}/select-compute")
-    @Transactional // Εξασφαλίζει ότι η αλλαγή είναι ατομική
+// @Transactional <-- Αν το 403/Race Condition επιμένει, δοκίμασε να το βγάλεις προσωρινά
     public ResponseEntity<?> submitUserSelection(
             @PathVariable String jobId,
             @RequestBody Map<String, String> payload,
@@ -209,7 +209,10 @@ public class Repositories {
         String cleanToken = (token != null) ? token.replace("Bearer ", "").trim() : null;
         String rawSelection = payload.get("selectedCompute");
 
-        // --- STEP 1: SANITIZATION (Buzzword Mapping) ---
+        System.out.println("\n🔍 [DEBUG START] --- User Selection Process ---");
+        System.out.println("🔍 [DEBUG] Raw Input from UI: " + rawSelection);
+
+        // --- STEP 1: SANITIZATION ---
         String buzzword;
         String lower = rawSelection.toLowerCase();
         if (lower.contains("container")) {
@@ -219,41 +222,50 @@ public class Repositories {
         } else {
             buzzword = "VM";
         }
+        System.out.println("🔍 [DEBUG] Mapped Buzzword: " + buzzword);
 
         // --- STEP 2: UPDATE JOB ---
         AnalysisJob job = repoService.findAnalysisJob(jobId);
-        if (!"PENDING_USER_SELECTION".equals(job.getStatus())) {
-            return ResponseEntity.badRequest().body("Job is not in selection state.");
+        if (job == null) {
+            System.err.println("❌ [DEBUG] Job not found in DB: " + jobId);
+            return ResponseEntity.notFound().build();
         }
 
         ObjectMapper mapper = new ObjectMapper();
         try {
+            // Δες τι είχε το JSON πριν την αλλαγή
+            System.out.println("🔍 [DEBUG] Original JSON in DB: " + job.getBlueprintJson().toString());
+
             InfrastructureAnalysis blueprint = mapper.treeToValue(job.getBlueprintJson(), InfrastructureAnalysis.class);
 
-            // Επιβολή των buzzwords
+            // Ενημέρωση POJO
             blueprint.setComputeCategory(buzzword);
             blueprint.setTargetCompute(buzzword);
 
+            System.out.println("🔍 [DEBUG] POJO Updated -> Target: " + blueprint.getTargetCompute() + ", Category: " + blueprint.getComputeCategory());
+
+            // Μετατροπή POJO σε JSON Node
             job.setBlueprintJson(mapper.valueToTree(blueprint));
             job.setStatus("EXECUTING");
 
+            // ΑΥΤΟ ΕΙΝΑΙ ΤΟ ΠΙΟ ΚΡΙΣΙΜΟ PRINT
+            System.out.println("🔥 [DEBUG] FINAL JSON TO BE SAVED: " + job.getBlueprintJson().toString());
+
             // --- STEP 3: FORCE SAVE & FLUSH ---
-            // Χρησιμοποιούμε saveAndFlush για να στείλουμε το SQL UPDATE τώρα!
             repoService.saveAndFlushJob(job);
+            System.out.println("💾 [DEBUG] DB saveAndFlush executed for job: " + jobId);
 
-            System.out.println("💾 [DB SAVE] Target set to '" + buzzword + "' for job " + jobId);
-
-            // --- STEP 4: ASYNC TRIGGER WITH SAFETY DELAY ---
+            // --- STEP 4: ASYNC TRIGGER ---
             final String userId = job.getUserId();
             CompletableFuture.runAsync(() -> {
                 try {
-                    // To 400ms delay δίνει χρόνο στη Spring να κάνει COMMIT το transaction
-                    // του κύριου thread πριν ο Generator ζητήσει τα δεδομένα.
-                    Thread.sleep(300);
-                    System.out.println("🚀 [RESUME ASYNC] Triggering generators for: " + jobId);
+                    System.out.println("⏳ [DEBUG ASYNC] Sleeping for 400ms before trigger...");
+                    Thread.sleep(400);
+
+                    System.out.println("🚀 [DEBUG ASYNC] Triggering generators for: " + jobId);
                     repoService.triggerDownstreamServices(jobId, userId, cleanToken);
                 } catch (Exception e) {
-                    System.err.println("❌ [ASYNC ERROR] " + e.getMessage());
+                    System.err.println("❌ [DEBUG ASYNC ERROR] " + e.getMessage());
                 }
             });
 
@@ -263,6 +275,8 @@ public class Repositories {
             ));
 
         } catch (Exception e) {
+            System.err.println("❌ [DEBUG EXCEPTION] Mapping failed: " + e.getMessage());
+            e.printStackTrace();
             return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
         }
     }
