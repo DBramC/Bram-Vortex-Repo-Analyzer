@@ -205,49 +205,49 @@ public class Repositories {
             @RequestHeader(value = "Authorization", required = false) String token) {
 
         String cleanToken = (token != null) ? token.replace("Bearer ", "").trim() : null;
-        String selectedCompute = payload.get("selectedCompute");
+        String rawSelection = payload.get("selectedCompute"); // Αυτό που έρχεται από το UI
 
-        // 1. Βρίσκεις το Job
-        AnalysisJob job = repoService.findAnalysisJob(jobId);
-
-        if (!"PENDING_USER_SELECTION".equals(job.getStatus())) {
-            return ResponseEntity.badRequest().body("Job is not waiting for selection.");
+        // 1. Mapping στα 3 Buzzwords
+        String buzzword;
+        if (rawSelection.toLowerCase().contains("container")) {
+            buzzword = "managed containers";
+        } else if (rawSelection.toLowerCase().contains("kubernetes") || rawSelection.toLowerCase().contains("k8s")) {
+            buzzword = "kubernetes cluster";
+        } else {
+            buzzword = "VM";
         }
+
+        // 2. Εύρεση Job
+        AnalysisJob job = repoService.findAnalysisJob(jobId);
 
         ObjectMapper mapper = new ObjectMapper();
         try {
-            // 2. Μετατροπή σε POJO και "Καθαρισμός"
             InfrastructureAnalysis blueprint = mapper.treeToValue(job.getBlueprintJson(), InfrastructureAnalysis.class);
 
-            // Ορίζουμε ρητά την κατηγορία
-            blueprint.setComputeCategory(selectedCompute);
+            // Επιβάλλουμε τα buzzwords στο blueprint
+            blueprint.setComputeCategory(buzzword);
+            blueprint.setTargetCompute(buzzword);
 
-            // ΚΡΙΣΙΜΟ: Εδώ "κλειδώνεις" το targetCompute για να ξέρει ο Terraform Generator τι να φτιάξει
-            // Αν θες π.χ. στο AWS το "Container" να μεταφράζεται πάντα σε "Fargate"
-
-            blueprint.setTargetCompute(selectedCompute);
-
-
-            // 3. Ενημέρωση και αποθήκευση στη Βάση
+            // 3. Save & Force Flush (Για να προλάβει το Async)
             job.setBlueprintJson(mapper.valueToTree(blueprint));
-            job.setStatus("EXECUTING"); // Αλλάζουμε σε EXECUTING για να ξέρει το UI ότι ξεκίνησε η παραγωγή
+            job.setStatus("EXECUTING");
+
+            // Χρησιμοποίησε την repoService που καλεί το saveAndFlush
             repoService.saveAnalysisJob(job);
 
-            // 4. ASYNC TRIGGER (Για να μην φάει timeout το Frontend)
-            // Επιστρέφουμε αμέσως 200 OK και οι generators τρέχουν στο παρασκήνιο
+            // 4. Async Trigger
+            final String finalUserId = job.getUserId();
             CompletableFuture.runAsync(() -> {
                 try {
-                    System.out.println("🚀 [RESUME ASYNC] Triggering generators for Job: " + jobId);
-                    repoService.triggerDownstreamServices(jobId, job.getUserId(), cleanToken);
+                    // Μικρό delay για να είμαστε σίγουροι ότι το DB Transaction έκλεισε
+                    Thread.sleep(200);
+                    repoService.triggerDownstreamServices(jobId, finalUserId, cleanToken);
                 } catch (Exception e) {
-                    System.err.println("❌ [ASYNC TRIGGER ERROR] " + e.getMessage());
+                    System.err.println("❌ [ASYNC ERROR] " + e.getMessage());
                 }
             });
 
-            return ResponseEntity.ok(Map.of(
-                    "message", "Selection saved",
-                    "status", "EXECUTING"
-            ));
+            return ResponseEntity.ok(Map.of("message", "Target set to: " + buzzword));
 
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
