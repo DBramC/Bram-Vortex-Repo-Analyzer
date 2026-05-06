@@ -569,24 +569,29 @@ public class RepoService {
 
         // 1. Δυναμικό Prompt που ΕΠΙΒΑΛΛΕΙ και τα 3 Compute Types
         String costPrompt = String.format("""
-Act as a %1$s Cloud Architect. You MUST provide specific hardware specifications for ALL THREE of the following compute categories, regardless of application complexity.
+Act as a Senior %1$s Solutions Architect. 
+You MUST provide exact hardware specifications for cost estimation for a %3$s (%4$s) application.
 
 CONTEXT:
-- Target Cloud: %1$s
+- Cloud Provider: %1$s
 - Target Region: %2$s
-- Tech Stack: %3$s (%4$s)
+
+STRICT UNIT RULES FOR %1$s (CRITICAL):
+1. AWS: 
+   - 'Container' (Fargate): 'cpu' MUST be an integer unit string (e.g., "256", "512", "1024", "2048"). 'memory' MUST be an integer MiB string (e.g., "512", "1024", "2048", "4096").
+   - 'Virtual Machine' & 'Kubernetes': Use exact instance types (e.g., "t3.medium").
+2. AZURE:
+   - 'Container': Use decimal strings (e.g., cpu: "1.0", memory: "2.0").
+   - 'Virtual Machine' & 'Kubernetes': Use exact sizes (e.g., "Standard_B2s").
+3. GCP:
+   - 'Container': Use specific strings (e.g., cpu: "1", memory: "1Gi").
 
 TASK:
-Provide exact %1$s specifications for:
-1. "Virtual Machine": A specific, cost-effective instance type (e.g., 't3.medium').
-2. "Container": Specific CPU and Memory allocation (e.g., cpu: 1.0, memory: 2.0).
-3. "Kubernetes": A specific node instance type and a count of at least 2 nodes.
-
-IMPORTANT: All hardware SKUs must be 100%% valid for %1$s in %2$s.
+Provide specifications for ALL THREE categories. Since this is a %3$s app, ensure at least 2GB (2048 MiB) of RAM for any compute type.
 
 OUTPUT RULES:
-- Return ONLY a raw JSON object.
-- YOU MUST INCLUDE ALL THREE KEYS: "Virtual Machine", "Container", "Kubernetes".
+- Return ONLY a raw JSON object. No markdown, no prose.
+- ALL hardware SKUs must be 100%% valid for %1$s in %2$s.
 
 SCHEMA:
 {
